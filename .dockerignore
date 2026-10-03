@@ -1,0 +1,24 @@
+# Jangan kirim dependency & file lokal ke image (di-install di dalam build).
+vendor
+node_modules
+.git
+.gitignore
+.env
+.env.*
+!.env.example
+storage/logs/*
+storage/framework/cache/data/*
+storage/framework/sessions/*
+storage/framework/views/*
+storage/framework/testing/*
+storage/app/public/*
+storage/*.key
+bootstrap/cache/*
+.phpunit.cache
+.phpunit.result.cache
+test-reports
+tests
+Dockerfile
+docker-compose.yml
+docker-compose.*.yml
+*.md
