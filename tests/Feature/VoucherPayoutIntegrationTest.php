@@ -122,6 +122,45 @@ class VoucherPayoutIntegrationTest extends TestCase
             ->assertStatus(409);
     }
 
+    public function test_duplicate_error_returns_actionable_502_not_retry(): void
+    {
+        Config::set('services.xendit.mock', false);
+        Config::set('services.xendit.key', 'test-key');
+
+        Http::fake([
+            'api.xendit.co/v3/payouts' => Http::response([
+                'error_code' => 'DUPLICATE_ERROR',
+                'message' => 'Existing payout record with same idempotency key but different request was matched in our records',
+            ], 409),
+        ]);
+
+        $warga = $this->makeWarga(1000);
+        $mitraUser = User::factory()->mitra()->create();
+        $mitra = $this->makeMitra($mitraUser);
+        $voucher = $this->makeVoucher($mitra);
+
+        $claimRes = $this->actingAs($warga, 'sanctum')
+            ->postJson('/api/vouchers/claim', ['voucher_id' => $voucher->id])
+            ->assertStatus(201);
+
+        $qr = $claimRes->json('data.qr_token');
+        $claimId = $claimRes->json('data.claim_id');
+
+        $res = $this->actingAs($mitraUser, 'sanctum')
+            ->postJson('/api/vouchers/redeem', ['unique_code' => $qr])
+            ->assertStatus(502);
+
+        // Pesan actionable (bukan "Please retry") + reference untuk rekonsiliasi.
+        $res->assertJsonPath('success', false);
+        $this->assertStringContainsString('Do not retry', $res->json('message'));
+        $this->assertStringContainsString('KBK-CLAIM-'.$claimId, $res->json('message'));
+        $this->assertStringContainsString('DUPLICATE_ERROR', $res->json('error'));
+
+        // Rollback total: klaim tetap claimed, tanpa disbursement.
+        $this->assertSame('claimed', VoucherClaim::find($claimId)->status);
+        $this->assertSame(0, Disbursement::where('voucher_claim_id', $claimId)->count());
+    }
+
     public function test_real_payout_pending_then_webhook_succeeded_credits_balance(): void
     {
         Config::set('services.xendit.mock', false);

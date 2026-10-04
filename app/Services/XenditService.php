@@ -55,7 +55,54 @@ class XenditService
     public function buildReferenceId(int $claimId): string
     {
         // Stable reference is preferable for retries.
-        return 'KBK-CLAIM-'.$claimId;
+        $prefix = $this->keyPrefix();
+
+        return $prefix === '' ? 'KBK-CLAIM-'.$claimId : $prefix.'-KBK-CLAIM-'.$claimId;
+    }
+
+    /**
+     * Idempotency key untuk satu operasi redeem. Deterministik per claim
+     * (retry yang identik aman dari double payout) dan ter-namespace per
+     * environment via XENDIT_KEY_PREFIX agar tidak bertabrakan dengan
+     * operasi beda body dari environment lain yang memakai API key sama.
+     */
+    public function buildIdempotencyKey(int $claimId): string
+    {
+        return $this->buildReferenceId($claimId);
+    }
+
+    /**
+     * Prefix namespace, dinormalisasi ke [A-Z0-9-] agar aman untuk
+     * reference_id & idempotency key Xendit.
+     *
+     * Prioritas: XENDIT_KEY_PREFIX eksplisit dulu; bila kosong, turunkan
+     * otomatis dari APP_ENV (production→PROD, local→LOCAL, env lain→
+     * uppercase-nya) sehingga tidak perlu konfigurasi per environment.
+     * Environment testing sengaja tanpa prefix (format lawas) agar test
+     * deterministik. Override manual tetap tersedia untuk kasus khusus
+     * (mis. dua VPS production berbagi satu API key).
+     */
+    public function keyPrefix(): string
+    {
+        $explicit = strtoupper(trim((string) config('services.xendit.key_prefix', '')));
+
+        if ($explicit === '') {
+            $env = strtolower((string) config('app.env', ''));
+
+            if ($env === '' || $env === 'testing') {
+                return '';
+            }
+
+            $explicit = match ($env) {
+                'production' => 'PROD',
+                'local' => 'LOCAL',
+                default => strtoupper($env),
+            };
+        }
+
+        $prefix = preg_replace('/[^A-Z0-9-]/', '', $explicit) ?? '';
+
+        return trim($prefix, '-');
     }
 
     /**
@@ -158,11 +205,25 @@ class XenditService
 
         $this->validatePayoutPayload($payload);
 
-        $idempotencyKey ??= 'KBK-CLAIM-'.($payload['reference_id'] ?? Str::uuid());
+        $idempotencyKey ??= $this->buildIdempotencyKey(
+            (int) (preg_replace('/\D+/', '', (string) ($payload['reference_id'] ?? '')) ?: 0)
+        );
 
         if (strlen($idempotencyKey) > 100) {
             throw new RuntimeException('Xendit idempotency key must not exceed 100 characters.');
         }
+
+        // Catat request (nomor rekening dimask agar aman di log).
+        Log::info('Xendit payout request', [
+            'reference_id' => $payload['reference_id'] ?? null,
+            'idempotency_key' => $idempotencyKey,
+            'source_amount' => $payload['payout_details']['source_amount'] ?? null,
+            'bank' => $payload['recipient']['account_details']['routing_value_1'] ?? null,
+            'account_last4' => substr(
+                (string) ($payload['recipient']['account_details']['account_number'] ?? ''),
+                -4
+            ),
+        ]);
 
         try {
             $response = $this->sendPayoutRequest($payload, $idempotencyKey);

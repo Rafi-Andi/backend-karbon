@@ -31,5 +31,8 @@
         <env name="PULSE_ENABLED" value="false"/>
         <env name="TELESCOPE_ENABLED" value="false"/>
         <env name="NIGHTWATCH_ENABLED" value="false"/>
+        <!-- Paksa tanpa prefix agar format reference/key deterministik
+             (KBK-CLAIM-{id}) apa pun isi XENDIT_KEY_PREFIX di .env dev. -->
+        <env name="XENDIT_KEY_PREFIX" value=""/>
     </php>
 </phpunit>

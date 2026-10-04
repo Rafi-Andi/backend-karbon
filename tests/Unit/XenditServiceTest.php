@@ -227,6 +227,69 @@ class XenditServiceTest extends TestCase
         $this->assertSame($a, $b);
     }
 
+    public function test_key_prefix_namespaces_reference_and_idempotency_key(): void
+    {
+        Config::set('services.xendit.key_prefix', 'PROD');
+
+        $service = new XenditService(apiKey: '', mock: true);
+
+        $this->assertSame('PROD', $service->keyPrefix());
+        $this->assertSame('PROD-KBK-CLAIM-9', $service->buildReferenceId(9));
+        $this->assertSame('PROD-KBK-CLAIM-9', $service->buildIdempotencyKey(9));
+        // Deterministik: retry operasi sama menghasilkan key sama.
+        $this->assertSame(
+            $service->buildIdempotencyKey(9),
+            $service->buildIdempotencyKey(9)
+        );
+    }
+
+    public function test_key_prefix_sanitized_and_empty_by_default(): void
+    {
+        $service = new XenditService(apiKey: '', mock: true);
+
+        $this->assertSame('', $service->keyPrefix());
+        $this->assertSame('KBK-CLAIM-9', $service->buildIdempotencyKey(9));
+
+        Config::set('services.xendit.key_prefix', 'prod!! ');
+        $this->assertSame('PROD', $service->keyPrefix());
+        $this->assertSame('PROD-KBK-CLAIM-9', $service->buildReferenceId(9));
+    }
+
+    public function test_key_prefix_derived_from_app_env_when_not_configured(): void
+    {
+        $service = new XenditService(apiKey: '', mock: true);
+
+        Config::set('app.env', 'production');
+        $this->assertSame('PROD', $service->keyPrefix());
+        $this->assertSame('PROD-KBK-CLAIM-9', $service->buildIdempotencyKey(9));
+
+        Config::set('app.env', 'local');
+        $this->assertSame('LOCAL', $service->keyPrefix());
+
+        Config::set('app.env', 'staging');
+        $this->assertSame('STAGING', $service->keyPrefix());
+    }
+
+    public function test_key_prefix_empty_in_testing_env_for_determinism(): void
+    {
+        Config::set('app.env', 'testing');
+
+        $service = new XenditService(apiKey: '', mock: true);
+
+        $this->assertSame('', $service->keyPrefix());
+        $this->assertSame('KBK-CLAIM-9', $service->buildReferenceId(9));
+    }
+
+    public function test_explicit_key_prefix_wins_over_derived(): void
+    {
+        Config::set('app.env', 'production');
+        Config::set('services.xendit.key_prefix', 'CUSTOM');
+
+        $service = new XenditService(apiKey: '', mock: true);
+
+        $this->assertSame('CUSTOM-KBK-CLAIM-9', $service->buildIdempotencyKey(9));
+    }
+
     public function test_status_mapping_v3_to_internal(): void
     {
         Config::set('services.xendit.mock', true);

@@ -211,9 +211,10 @@ class MerchantController extends Controller
     {
         $uniqueCode = $request->validated()['unique_code'];
         $userId = Auth::id();
+        $referenceForError = null;
 
         try {
-            $result = DB::transaction(function () use ($uniqueCode, $userId) {
+            $result = DB::transaction(function () use ($uniqueCode, $userId, &$referenceForError) {
                 $mitra = MitraProfile::where('user_id', $userId)
                     ->lockForUpdate()
                     ->first();
@@ -267,9 +268,12 @@ class MerchantController extends Controller
                 $xendit = XenditService::fromConfig();
 
                 // Stable identifiers: retrying the same claim must not create
-                // a different logical payout.
+                // a different logical payout. Key ter-namespace per environment
+                // (XENDIT_KEY_PREFIX) agar tidak bertabrakan dengan operasi
+                // beda body dari environment lain yang memakai API key sama.
                 $referenceId = $xendit->buildReferenceId((int) $claim->id);
-                $idempotencyKey = 'KBK-CLAIM-'.$claim->id;
+                $idempotencyKey = $xendit->buildIdempotencyKey((int) $claim->id);
+                $referenceForError = $referenceId;
 
                 $amount = (int) round((float) $voucher->rupiah_value);
 
@@ -472,9 +476,19 @@ class MerchantController extends Controller
         } catch (RuntimeException $e) {
             report($e);
 
+            // DUPLICATE_ERROR Xendit = key dipakai body berbeda. Retry tidak
+            // akan pernah berhasil → pesan actionable + reference untuk
+            // rekonsiliasi manual di dashboard Xendit.
+            $message = 'Disbursement failed. Please retry.';
+            if (str_contains($e->getMessage(), 'DUPLICATE_ERROR')) {
+                $message = 'Disbursement blocked: a different payout was already recorded'
+                    .' under this reference. Do not retry — reconcile in the Xendit dashboard'
+                    .($referenceForError ? " (reference {$referenceForError})." : '.');
+            }
+
             return response()->json([
                 'success' => false,
-                'message' => 'Disbursement failed. Please retry.',
+                'message' => $message,
                 'error' => $e->getMessage(),
                 'debug' => app()->environment('local')
                     ? [
