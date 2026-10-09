@@ -35,6 +35,13 @@ class LeaderboardController extends Controller
             'timeframe' => $timeframe,
             'rankings' => $rankings,
             'current_user' => $currentUserRank,
+            'wilayah' => [
+                'kota' => $user->kota,
+                'kecamatan' => $user->kecamatan,
+                'kelurahan' => $user->kelurahan,
+                'rw' => $user->rw,
+                'rt' => $scope === 'rt' ? $user->rt : null,
+            ],
         ];
 
         return response()->json([
@@ -64,6 +71,23 @@ class LeaderboardController extends Controller
         };
     }
 
+    private function applyWilayahScope($query, string $scope, User $user): void
+    {
+        // Leaderboard dikelompokkan per wilayah user sendiri, bukan general
+        // se-Indonesia. RT 005/RW 02 Surabaya tidak boleh tercampur dengan
+        // RT 005/RW 02 kota lain.
+        // scope=rt: satu RT (kota+kecamatan+kelurahan+rw+rt sama).
+        // scope=rw: satu RW dalam kelurahan yang sama (kota+kecamatan+kelurahan+rw sama).
+        $query->where('users.kota', $user->kota)
+            ->where('users.kecamatan', $user->kecamatan)
+            ->where('users.kelurahan', $user->kelurahan)
+            ->where('users.rw', $user->rw);
+
+        if ($scope === 'rt') {
+            $query->where('users.rt', $user->rt);
+        }
+    }
+
     private function getRankings(string $scope, array $dateRange, User $user): \Illuminate\Support\Collection
     {
         $query = DB::table('user_missions')
@@ -73,6 +97,9 @@ class LeaderboardController extends Controller
             ->select(
                 'users.id as user_id',
                 'users.name',
+                'users.kota',
+                'users.kecamatan',
+                'users.kelurahan',
                 'users.rt',
                 'users.rw',
                 DB::raw('SUM(missions.xp_reward) as total_xp'),
@@ -81,14 +108,9 @@ class LeaderboardController extends Controller
             ->where('user_missions.status', 'verified')
             ->whereBetween('user_missions.created_at', [$dateRange['start'], $dateRange['end']])
             ->where('users.is_active', true)
-            ->groupBy('users.id', 'users.name', 'users.rt', 'users.rw', 'warga_profiles.level');
+            ->groupBy('users.id', 'users.name', 'users.kota', 'users.kecamatan', 'users.kelurahan', 'users.rt', 'users.rw', 'warga_profiles.level');
 
-        if ($scope === 'rt') {
-            $query->where('users.rt', $user->rt)
-                ->where('users.rw', $user->rw);
-        } else {
-            $query->where('users.rw', $user->rw);
-        }
+        $this->applyWilayahScope($query, $scope, $user);
 
         $rankings = $query->orderBy('total_xp', 'desc')
             ->limit(10)
@@ -124,12 +146,7 @@ class LeaderboardController extends Controller
             ->where('users.is_active', true)
             ->groupBy('users.id');
 
-        if ($scope === 'rt') {
-            $subQuery->where('users.rt', $user->rt)
-                ->where('users.rw', $user->rw);
-        } else {
-            $subQuery->where('users.rw', $user->rw);
-        }
+        $this->applyWilayahScope($subQuery, $scope, $user);
 
         $usersAbove = DB::table('users')
             ->joinSub($subQuery, 'user_xp', function ($join) {
@@ -146,6 +163,9 @@ class LeaderboardController extends Controller
             'rank' => $rank,
             'user_id' => $user->id,
             'name' => $user->name,
+            'kota' => $user->kota,
+            'kecamatan' => $user->kecamatan,
+            'kelurahan' => $user->kelurahan,
             'rt' => $user->rt,
             'rw' => $user->rw,
             'total_xp' => $userXp,
