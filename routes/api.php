@@ -3,6 +3,7 @@
 use App\Http\Controllers\ActivityController;
 use App\Http\Controllers\AdminController;
 use App\Http\Controllers\AdminDonationController;
+use App\Http\Controllers\AdminMissionController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\CarbonStatsController;
 use App\Http\Controllers\DashboardController;
@@ -154,6 +155,18 @@ Route::middleware('auth:sanctum')->group(function () {
             ->name('admin.vouchers.store');
         Route::get('/admin/mitra-products', [AdminController::class, 'products'])
             ->name('admin.mitra-products.index');
+
+        // Kelola misi mobility & waste (quiz/donation via seeder).
+        Route::get('/admin/missions', [AdminMissionController::class, 'index'])
+            ->name('admin.missions.index');
+        Route::post('/admin/missions', [AdminMissionController::class, 'store'])
+            ->name('admin.missions.store');
+        Route::patch('/admin/missions/{id}', [AdminMissionController::class, 'update'])
+            ->whereNumber('id')
+            ->name('admin.missions.update');
+        Route::patch('/admin/missions/{id}/status', [AdminMissionController::class, 'setStatus'])
+            ->whereNumber('id')
+            ->name('admin.missions.status');
     });
 });
 

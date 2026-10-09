@@ -81,11 +81,17 @@ class DashboardController extends Controller
             ->select(
                 'users.id as user_id',
                 'users.name',
+                'users.kota',
+                'users.kecamatan',
+                'users.kelurahan',
                 'users.rt',
                 'users.rw',
                 'warga_profiles.xp as total_xp',
                 'warga_profiles.level'
             )
+            ->where('users.kota', $user->kota)
+            ->where('users.kecamatan', $user->kecamatan)
+            ->where('users.kelurahan', $user->kelurahan)
             ->where('users.rt', $user->rt)
             ->where('users.rw', $user->rw)
             ->where('users.is_active', true)

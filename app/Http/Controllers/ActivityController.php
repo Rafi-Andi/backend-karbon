@@ -96,7 +96,11 @@ class ActivityController extends Controller
                 return $this->item(
                     'tx-'.$tx->id,
                     'mobility',
-                    $activity === 'walking' ? 'Tracker Jalan Kaki' : 'Tracker Bersepeda',
+                    match ($activity) {
+                        'walking' => 'Tracker Jalan Kaki',
+                        'running' => 'Tracker Lari',
+                        default => 'Tracker Bersepeda',
+                    },
                     $amount,
                     $tx
                 );
