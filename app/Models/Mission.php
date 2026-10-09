@@ -15,6 +15,7 @@ class Mission extends Model
         'description',
         'validation_prompt',
         'category',
+        'activity_type',
         'xp_reward',
         'points_reward',
         'target_distance_km',

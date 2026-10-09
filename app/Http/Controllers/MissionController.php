@@ -33,10 +33,19 @@ class MissionController extends Controller
     public const CO2_GRAMS_PER_KM = 210;
 
     /**
-     * Batas kecepatan rata-rata wajar untuk jalan/sepeda (km/h).
+     * Batas kecepatan rata-rata wajar per aktivitas (km/h).
      * Di atas ini dianggap data GPS tidak valid.
+     * walking ~ jalan santai 4-5, cepat 6-7;
+     * running ~ kasual 8-10, cepat 12-14;
+     * cycling ~ santai 15-20, cepat 25.
+     *
+     * @var array<string, int>
      */
-    public const MAX_AVG_SPEED_KMH = 30;
+    public const AVG_SPEED_LIMITS_KMH = [
+        'walking' => 7,
+        'running' => 14,
+        'cycling' => 25,
+    ];
 
     /**
      * GET /api/missions/active — daftar misi mobility & waste yang aktif.
@@ -345,6 +354,20 @@ class MissionController extends Controller
             ], 422);
         }
 
+        // Misi default (tanpa mission_id) juga terikat aktivitasnya bila diset.
+        // Misi eksplisit sudah dicek di MobilitySyncRequest::withValidator.
+        if ($mission->activity_type !== null
+            && $validated['activity_type'] !== $mission->activity_type
+        ) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Validation failed.',
+                'errors' => [
+                    'activity_type' => ['Activity type does not match this mission.'],
+                ],
+            ], 422);
+        }
+
         // Kunci harian 1x per misi (terhadap misi hasil resolve).
         if ($this->hasCompletedToday((int) $user->id, (int) $mission->id)) {
             return $this->dailyCapResponse((int) $mission->id);
@@ -374,8 +397,10 @@ class MissionController extends Controller
 
         $durationSeconds = (int) $validated['duration_seconds'];
         $avgSpeedKmh = $distanceKm / ($durationSeconds / 3600);
+        $activityType = $validated['activity_type'];
+        $speedLimit = self::AVG_SPEED_LIMITS_KMH[$activityType] ?? 25;
 
-        if ($avgSpeedKmh > self::MAX_AVG_SPEED_KMH) {
+        if ($avgSpeedKmh > $speedLimit) {
             $rejected = UserMission::create([
                 'user_id' => $user->id,
                 'mission_id' => $mission->id,
@@ -383,12 +408,15 @@ class MissionController extends Controller
                 'confidence_score' => 0,
                 'ai_gemini_response' => [
                     'source' => 'mobility-sync',
+                    'activity_type' => $activityType,
                     'avg_speed_kmh' => round($avgSpeedKmh, 2),
+                    'speed_limit_kmh' => $speedLimit,
                 ],
                 'rejection_reason' => sprintf(
-                    'Unrealistic average speed (%.1f km/h exceeds %d km/h limit).',
+                    'Unrealistic average speed for %s (%.1f km/h exceeds %d km/h limit).',
+                    $activityType,
                     $avgSpeedKmh,
-                    self::MAX_AVG_SPEED_KMH
+                    $speedLimit
                 ),
             ]);
 
@@ -398,7 +426,9 @@ class MissionController extends Controller
                 'data' => [
                     'user_mission_id' => $rejected->id,
                     'status' => 'rejected',
+                    'activity_type' => $activityType,
                     'avg_speed_kmh' => round($avgSpeedKmh, 2),
+                    'speed_limit_kmh' => $speedLimit,
                 ],
             ], 422);
         }

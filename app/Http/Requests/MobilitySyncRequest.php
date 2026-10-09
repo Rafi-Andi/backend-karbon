@@ -18,7 +18,7 @@ class MobilitySyncRequest extends FormRequest
     {
         return [
             'mission_id' => ['nullable', 'integer', 'exists:missions,id'],
-            'activity_type' => ['required', 'string', 'in:cycling,walking'],
+            'activity_type' => ['required', 'string', 'in:walking,running,cycling'],
             'distance_km' => ['required', 'numeric', 'min:0.1', 'max:500'],
             'duration_seconds' => ['required', 'integer', 'min:60'],
             'gps_coordinates_path' => ['required', 'array', 'min:2', 'max:2000'],
@@ -41,6 +41,17 @@ class MobilitySyncRequest extends FormRequest
                     'mission_id',
                     'Mission must be an active mobility mission.'
                 );
+
+                return;
+            }
+
+            if ($mission->activity_type !== null
+                && $this->input('activity_type') !== $mission->activity_type
+            ) {
+                $validator->errors()->add(
+                    'activity_type',
+                    'Activity type does not match this mission.'
+                );
             }
         });
     }
@@ -51,7 +62,7 @@ class MobilitySyncRequest extends FormRequest
             'mission_id.integer' => 'Mission ID must be an integer.',
             'mission_id.exists' => 'Mission not found.',
             'activity_type.required' => 'Activity type is required.',
-            'activity_type.in' => 'Activity type must be cycling or walking.',
+            'activity_type.in' => 'Activity type must be walking, running, or cycling.',
             'distance_km.required' => 'Distance is required.',
             'distance_km.numeric' => 'Distance must be a number.',
             'distance_km.min' => 'Distance must be at least 0.1 km.',
