@@ -6,9 +6,10 @@ use App\Http\Requests\CreateCampaignRequest;
 use App\Http\Requests\CreateFundedVoucherRequest;
 use App\Http\Requests\UpdateCampaignRequest;
 use App\Models\DonationCampaign;
-use App\Models\MitraProfile;
+use App\Models\MitraProduct;
 use App\Models\Voucher;
 use App\Models\VoucherFundAllocation;
+use App\Services\EcoRate;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -94,8 +95,10 @@ class AdminDonationController extends Controller
     }
 
     /**
-     * POST /api/admin/vouchers — buat voucher didanai campaign.
-     * Total kebutuhan = stock × rupiah_value, wajib ≤ available.
+     * POST /api/admin/vouchers — buat voucher didanai campaign dari produk mitra.
+     * Admin pilih produk + jumlah (stock); harga snapshot dari produk,
+     * points_cost auto via EcoRate (Rp40/poin) agar tidak inflasi.
+     * Total kebutuhan = stock × rupiah_value produk, wajib ≤ available.
      * Rollback total jika dana kurang (cek di dalam transaction + lock).
      */
     public function storeVoucher(CreateFundedVoucherRequest $request): JsonResponse
@@ -112,13 +115,34 @@ class AdminDonationController extends Controller
                     throw new HttpException(404, 'Campaign not found.');
                 }
 
-                $mitra = MitraProfile::where('id', $validated['mitra_profile_id'])->first();
+                $product = MitraProduct::with('mitraProfile')
+                    ->where('id', $validated['mitra_product_id'])
+                    ->first();
+
+                if (! $product) {
+                    throw new HttpException(404, 'Mitra product not found.');
+                }
+
+                if (! $product->is_active) {
+                    throw new HttpException(422, 'Mitra product is inactive.');
+                }
+
+                $mitra = $product->mitraProfile;
 
                 if (! $mitra || $mitra->status_verifikasi !== 'verified' || ! $mitra->is_active) {
                     throw new HttpException(403, 'Mitra is not verified or inactive.');
                 }
 
-                $needed = (int) $validated['stock'] * (int) $validated['rupiah_value'];
+                // Snapshot: salin harga & identitas produk saat funding.
+                // Perubahan harga produk setelah ini tidak mengubah batch ini.
+                $rupiah = (int) round((float) $product->rupiah_value);
+                $points = EcoRate::pointsForRupiah($rupiah);
+
+                if ($rupiah < 1000 || $points <= 0) {
+                    throw new HttpException(422, 'Product price is invalid.');
+                }
+
+                $needed = $rupiah * (int) $validated['stock'];
                 $available = $campaign->availableAmount();
 
                 if ($needed > $available) {
@@ -134,12 +158,13 @@ class AdminDonationController extends Controller
 
                 $voucher = Voucher::create([
                     'mitra_profile_id' => $mitra->id,
-                    'title' => $validated['title'],
-                    'description' => $validated['description'],
-                    'category' => $validated['category'] ?? 'kuliner',
-                    'image_url' => $validated['image_url'] ?? null,
-                    'points_cost' => $validated['points_cost'],
-                    'rupiah_value' => $validated['rupiah_value'],
+                    'mitra_product_id' => $product->id,
+                    'title' => $product->title,
+                    'description' => $product->description,
+                    'category' => $product->category ?? 'kuliner',
+                    'image_url' => $product->image_url,
+                    'points_cost' => $points,
+                    'rupiah_value' => $rupiah,
                     'stock' => $validated['stock'],
                     'claimed_count' => 0,
                     'expired_at' => $validated['expired_at'],
@@ -158,6 +183,10 @@ class AdminDonationController extends Controller
                 return [
                     'voucher_id' => $voucher->id,
                     'campaign_id' => $campaign->id,
+                    'mitra_product_id' => $product->id,
+                    'points_cost' => $points,
+                    'rupiah_value' => number_format($rupiah, 2, '.', ''),
+                    'rupiah_per_point' => EcoRate::rupiahPerPoint(),
                     'allocated_amount' => number_format($needed, 2, '.', ''),
                     'campaign_available' => number_format($campaign->refresh()->availableAmount(), 2, '.', ''),
                 ];

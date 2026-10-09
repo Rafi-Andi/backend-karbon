@@ -17,6 +17,8 @@ class DashboardResource extends JsonResource
         return [
             'user' => [
                 'name' => $this->resource['name'],
+                'kota' => $this->resource['kota'] ?? null,
+                'kecamatan' => $this->resource['kecamatan'] ?? null,
                 'rt' => $this->resource['rt'] ?? null,
                 'rw' => $this->resource['rw'] ?? null,
                 'kelurahan' => $this->resource['kelurahan'] ?? null,

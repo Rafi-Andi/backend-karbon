@@ -3,7 +3,10 @@
 namespace App\Http\Controllers;
 
 use App\Http\Requests\VerifyMitraRequest;
+use App\Http\Resources\MitraProductResource;
+use App\Models\MitraProduct;
 use App\Models\MitraProfile;
+use App\Models\Voucher;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -184,6 +187,63 @@ class AdminController extends Controller
                 'store_name' => $mitra->nama_usaha,
                 'verification_status' => $mitra->status_verifikasi,
                 'is_active' => (bool) $mitra->is_active,
+            ],
+        ]);
+    }
+
+    /**
+     * GET /api/admin/mitra-products — picker produk untuk funding voucher.
+     * Filter: ?mitra_profile_id=&is_active=1&category=kuliner.
+     * Hanya produk milik mitra verified+aktif yang layak didanai;
+     * flag `fundable` menandainya agar UI bisa disable yang lain.
+     */
+    public function products(Request $request): JsonResponse
+    {
+        $request->validate([
+            'mitra_profile_id' => 'sometimes|integer|exists:mitra_profiles,id',
+            'is_active' => 'sometimes|boolean',
+            'category' => 'sometimes|string|in:'.implode(',', Voucher::CATEGORIES),
+        ]);
+
+        $query = MitraProduct::with('mitraProfile:id,nama_usaha,status_verifikasi,is_active')
+            ->orderByDesc('id');
+
+        if ($request->filled('mitra_profile_id')) {
+            $query->where('mitra_profile_id', $request->integer('mitra_profile_id'));
+        }
+
+        if ($request->has('is_active')) {
+            $query->where('is_active', $request->boolean('is_active'));
+        }
+
+        if ($request->filled('category')) {
+            $query->where('category', $request->string('category')->toString());
+        }
+
+        $products = $query->paginate(15);
+
+        $items = collect($products->items())->map(function ($p) {
+            $res = (new MitraProductResource($p))->resolve();
+
+            $mitra = $p->mitraProfile;
+            $res['store_name'] = $mitra->nama_usaha ?? null;
+            $res['fundable'] = (bool) ($p->is_active
+                && $mitra
+                && $mitra->status_verifikasi === 'verified'
+                && $mitra->is_active);
+
+            return $res;
+        })->values();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Mitra products retrieved successfully.',
+            'data' => $items,
+            'meta' => [
+                'current_page' => $products->currentPage(),
+                'last_page' => $products->lastPage(),
+                'per_page' => $products->perPage(),
+                'total' => $products->total(),
             ],
         ]);
     }

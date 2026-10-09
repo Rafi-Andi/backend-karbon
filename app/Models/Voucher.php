@@ -20,6 +20,7 @@ class Voucher extends Model
 
     protected $fillable = [
         'mitra_profile_id',
+        'mitra_product_id',
         'title',
         'description',
         'category',
@@ -44,6 +45,11 @@ class Voucher extends Model
     public function mitraProfile(): BelongsTo
     {
         return $this->belongsTo(MitraProfile::class);
+    }
+
+    public function mitraProduct(): BelongsTo
+    {
+        return $this->belongsTo(MitraProduct::class);
     }
 
     public function claims(): HasMany

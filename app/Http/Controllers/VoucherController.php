@@ -21,6 +21,7 @@ class VoucherController extends Controller
     {
         $request->validate([
             'category' => 'sometimes|string|in:'.implode(',', Voucher::CATEGORIES),
+            'city' => 'sometimes|string|max:255',
         ]);
 
         $vouchers = Voucher::with('mitraProfile.user')
@@ -30,6 +31,21 @@ class VoucherController extends Controller
             ->when($request->get('category'), function ($query, $category) {
                 $query->where('category', $category);
             })
+            ->when($request->get('city'), function ($query, $city) {
+                $query->whereHas('mitraProfile', function ($q) use ($city) {
+                    // usaha_kota cocok, atau (usaha_kota kosong → fallback domisili owner).
+                    $q->where(function ($w) use ($city) {
+                        $w->where('usaha_kota', $city)
+                            ->orWhere(function ($f) use ($city) {
+                                $f->where(function ($e) {
+                                    $e->whereNull('usaha_kota')->orWhere('usaha_kota', '');
+                                })->whereHas('user', function ($u) use ($city) {
+                                    $u->where('kota', $city);
+                                });
+                            });
+                    });
+                });
+            })
             ->orderBy('created_at', 'desc')
             ->get();
 
@@ -37,6 +53,32 @@ class VoucherController extends Controller
             'success' => true,
             'message' => 'Vouchers retrieved successfully.',
             'data' => VoucherResource::collection($vouchers),
+        ]);
+    }
+
+    /**
+     * GET /api/vouchers/cities — daftar kota yang punya voucher aktif.
+     * Sumber opsi filter kota marketplace (hanya kota yang ada hasilnya).
+     * Kota = usaha_kota, fallback domisili owner untuk data lama.
+     */
+    public function cities(): JsonResponse
+    {
+        $cities = Voucher::query()
+            ->join('mitra_profiles', 'vouchers.mitra_profile_id', '=', 'mitra_profiles.id')
+            ->join('users', 'mitra_profiles.user_id', '=', 'users.id')
+            ->where('vouchers.is_active', true)
+            ->where('vouchers.stock', '>', 0)
+            ->where('vouchers.expired_at', '>=', now()->toDateString())
+            ->selectRaw("COALESCE(NULLIF(mitra_profiles.usaha_kota, ''), NULLIF(users.kota, '')) as city, COUNT(*) as voucher_count")
+            ->groupBy('city')
+            ->havingRaw('city IS NOT NULL AND city != ""')
+            ->orderBy('city')
+            ->get();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Voucher cities retrieved successfully.',
+            'data' => $cities,
         ]);
     }
 

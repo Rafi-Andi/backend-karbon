@@ -59,6 +59,11 @@ class MitraProfile extends Model
         return $this->hasMany(Voucher::class);
     }
 
+    public function products(): HasMany
+    {
+        return $this->hasMany(MitraProduct::class);
+    }
+
     public function disbursements(): HasMany
     {
         return $this->hasMany(Disbursement::class);
