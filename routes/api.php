@@ -10,6 +10,7 @@ use App\Http\Controllers\DonationController;
 use App\Http\Controllers\LeaderboardController;
 use App\Http\Controllers\LevelController;
 use App\Http\Controllers\MerchantController;
+use App\Http\Controllers\MerchantProductController;
 use App\Http\Controllers\MissionController;
 use App\Http\Controllers\MitraRegisterController;
 use App\Http\Controllers\SagaController;
@@ -94,6 +95,8 @@ Route::middleware('auth:sanctum')->group(function () {
         ->name('donations.cancel');
 
     // Marketplace & Vouchers
+    Route::get('/vouchers/cities', [VoucherController::class, 'cities'])
+        ->name('vouchers.cities');
     Route::get('/vouchers', [VoucherController::class, 'index'])
         ->name('vouchers.index');
     Route::post('/vouchers/claim', [VoucherController::class, 'claim'])
@@ -112,6 +115,19 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/vouchers/redeem', [MerchantController::class, 'redeem'])
             ->middleware('throttle:30,1')
             ->name('vouchers.redeem');
+        Route::get('/merchant/products', [MerchantProductController::class, 'index'])
+            ->name('merchant.products.index');
+        Route::post('/merchant/products', [MerchantProductController::class, 'store'])
+            ->name('merchant.products.store');
+        Route::patch('/merchant/products/{id}', [MerchantProductController::class, 'update'])
+            ->whereNumber('id')
+            ->name('merchant.products.update');
+        Route::post('/merchant/products/{id}/photo', [MerchantProductController::class, 'uploadPhoto'])
+            ->whereNumber('id')
+            ->name('merchant.products.photo');
+        Route::delete('/merchant/products/{id}', [MerchantProductController::class, 'destroy'])
+            ->whereNumber('id')
+            ->name('merchant.products.destroy');
     });
 
     // Super Admin — role:admin (alias super_admin, lihat EnsureRole)
@@ -136,6 +152,8 @@ Route::middleware('auth:sanctum')->group(function () {
             ->name('admin.donation-campaigns.update');
         Route::post('/admin/vouchers', [AdminDonationController::class, 'storeVoucher'])
             ->name('admin.vouchers.store');
+        Route::get('/admin/mitra-products', [AdminController::class, 'products'])
+            ->name('admin.mitra-products.index');
     });
 });
 
