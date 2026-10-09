@@ -39,6 +39,8 @@ class LeaderboardSeeder extends Seeder
             // --- RW 03 (kontrol negatif: tidak muncul di RT/RW 02) ---
             ['name' => 'Lina Marlina', 'email' => 'lina@example.com', 'rt' => '001', 'rw' => '03', 'active' => true, 'streak' => 5],
             ['name' => 'Doni Saputra', 'email' => 'doni@example.com', 'rt' => '001', 'rw' => '03', 'active' => false, 'streak' => 0],
+            // --- Kontrol negatif beda kota (RT/RW sama 005/02 tapi Bandung: tidak boleh bocor ke Surabaya) ---
+            ['name' => 'Rina Bandung', 'email' => 'rina.bandung@example.com', 'rt' => '005', 'rw' => '02', 'active' => true, 'streak' => 6, 'kota' => 'Bandung', 'kecamatan' => 'Coblong', 'kelurahan' => 'Dago'],
         ];
 
         // title => [days_ago, status]
@@ -98,6 +100,11 @@ class LeaderboardSeeder extends Seeder
                 ['title' => 'Pahlawan Plastik Terpilah', 'days_ago' => 1, 'status' => 'verified'],
                 ['title' => 'Pilah Sampah Elektronik', 'days_ago' => 2, 'status' => 'verified'],
             ],
+            // Kontrol beda kota: RT/RW sama tapi tidak boleh muncul di leaderboard Surabaya.
+            'rina.bandung@example.com' => [
+                ['title' => 'Pahlawan Plastik Terpilah', 'days_ago' => 1, 'status' => 'verified'],
+                ['title' => 'Sepeda Pagi Hari', 'days_ago' => 2, 'status' => 'verified'],
+            ],
         ];
 
         foreach ($users as $data) {
@@ -108,9 +115,9 @@ class LeaderboardSeeder extends Seeder
                     'phone' => '+628100000'.random_int(100, 999),
                     'password' => Hash::make('SecurePassword123!'),
                     'role' => 'warga',
-                    'kota' => 'Surabaya',
-                    'kecamatan' => 'Gubeng',
-                    'kelurahan' => 'Mojo',
+                    'kota' => $data['kota'] ?? 'Surabaya',
+                    'kecamatan' => $data['kecamatan'] ?? 'Gubeng',
+                    'kelurahan' => $data['kelurahan'] ?? 'Mojo',
                     'rt' => $data['rt'],
                     'rw' => $data['rw'],
                     'is_active' => $data['active'],

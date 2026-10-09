@@ -190,15 +190,15 @@ class MobilitySyncTest extends TestCase
         );
     }
 
-    public function test_boundary_speed_exactly_30_kmh_passes(): void
+    public function test_boundary_speed_exactly_25_kmh_passes(): void
     {
         $user = $this->makeWarga();
         $this->makeMobilityMission();
 
-        // 10 km dalam 1200 detik = tepat 30 km/h -> lolos (batas: > 30).
+        // 10 km dalam 1440 detik = tepat 25 km/h -> lolos (batas: > 25).
         $response = $this->postJson(
             '/api/missions/mobility-sync',
-            $this->validPayload(['distance_km' => 10, 'duration_seconds' => 1200]),
+            $this->validPayload(['distance_km' => 10, 'duration_seconds' => 1440]),
             $this->authHeader($user)
         );
 
@@ -253,9 +253,183 @@ class MobilitySyncTest extends TestCase
 
         $this->postJson(
             '/api/missions/mobility-sync',
-            $this->validPayload(['activity_type' => 'running']),
+            $this->validPayload(['activity_type' => 'driving']),
             $this->authHeader($user)
         )->assertStatus(422)->assertJsonValidationErrors(['activity_type']);
+    }
+
+    public function test_activity_mismatch_with_explicit_mission_rejected(): void
+    {
+        $user = $this->makeWarga();
+        $mission = $this->makeMobilityMission(['activity_type' => 'cycling']);
+
+        // Pace valid untuk jalan (6 km/h) tapi misi mengikat sepeda.
+        $this->postJson(
+            '/api/missions/mobility-sync',
+            array_merge(
+                $this->validPayload([
+                    'activity_type' => 'walking',
+                    'distance_km' => 3,
+                    'duration_seconds' => 1800,
+                ]),
+                ['mission_id' => $mission->id]
+            ),
+            $this->authHeader($user)
+        )->assertStatus(422)->assertJsonValidationErrors(['activity_type']);
+
+        $this->assertEquals(0, UserMission::count());
+        $this->assertEquals(0, MobilityLog::count());
+    }
+
+    public function test_activity_mismatch_with_default_mission_rejected(): void
+    {
+        $user = $this->makeWarga();
+        $this->makeMobilityMission(['activity_type' => 'walking']);
+
+        // Tanpa mission_id -> misi default (jalan); sync sepeda ditolak
+        // walau pace-nya valid untuk sepeda.
+        $this->postJson(
+            '/api/missions/mobility-sync',
+            $this->validPayload([
+                'activity_type' => 'cycling',
+                'distance_km' => 2,
+                'duration_seconds' => 1200,
+            ]),
+            $this->authHeader($user)
+        )->assertStatus(422)->assertJsonValidationErrors(['activity_type']);
+
+        $this->assertEquals(0, UserMission::count());
+    }
+
+    public function test_activity_match_with_explicit_mission_passes(): void
+    {
+        $user = $this->makeWarga();
+        $mission = $this->makeMobilityMission(['activity_type' => 'walking']);
+
+        $this->postJson(
+            '/api/missions/mobility-sync',
+            array_merge(
+                $this->validPayload([
+                    'activity_type' => 'walking',
+                    'distance_km' => 3,
+                    'duration_seconds' => 1800,
+                ]),
+                ['mission_id' => $mission->id]
+            ),
+            $this->authHeader($user)
+        )->assertStatus(201);
+    }
+
+    public function test_running_activity_accepted(): void
+    {
+        $user = $this->makeWarga();
+        $this->makeMobilityMission();
+
+        // 5 km dalam 1800 detik = 10 km/h -> valid untuk lari (batas 20).
+        $response = $this->postJson(
+            '/api/missions/mobility-sync',
+            $this->validPayload([
+                'activity_type' => 'running',
+                'distance_km' => 5,
+                'duration_seconds' => 1800,
+            ]),
+            $this->authHeader($user)
+        );
+
+        $response->assertStatus(201)->assertJsonPath('data.status', 'verified');
+        $this->assertEquals(
+            'running',
+            MobilityLog::find($response->json('data.mobility_log_id'))->transport_mode
+        );
+    }
+
+    public function test_walking_speed_limit_rejects_cycling_pace(): void
+    {
+        $user = $this->makeWarga();
+        $this->makeMobilityMission();
+
+        // 5 km dalam 900 detik = 20 km/h -> wajar untuk sepeda (batas 25),
+        // tapi mustahil untuk jalan kaki (batas 7).
+        $response = $this->postJson(
+            '/api/missions/mobility-sync',
+            $this->validPayload([
+                'activity_type' => 'walking',
+                'distance_km' => 5,
+                'duration_seconds' => 900,
+            ]),
+            $this->authHeader($user)
+        );
+
+        $response->assertStatus(422)
+            ->assertJsonPath('success', false)
+            ->assertJsonPath('data.status', 'rejected')
+            ->assertJsonPath('data.activity_type', 'walking')
+            ->assertJsonPath('data.speed_limit_kmh', 7);
+
+        $this->assertEquals(20.0, $response->json('data.avg_speed_kmh'));
+        $this->assertEquals(0, MobilityLog::count());
+    }
+
+    public function test_running_speed_limit_rejects_cycling_pace(): void
+    {
+        $user = $this->makeWarga();
+        $this->makeMobilityMission();
+
+        // 5 km dalam 900 detik = 20 km/h -> lolos untuk sepeda (batas 25),
+        // tapi di atas batas lari (14).
+        $response = $this->postJson(
+            '/api/missions/mobility-sync',
+            $this->validPayload([
+                'activity_type' => 'running',
+                'distance_km' => 5,
+                'duration_seconds' => 900,
+            ]),
+            $this->authHeader($user)
+        );
+
+        $response->assertStatus(422)
+            ->assertJsonPath('success', false)
+            ->assertJsonPath('data.status', 'rejected')
+            ->assertJsonPath('data.speed_limit_kmh', 14);
+
+        $this->assertEquals(0, MobilityLog::count());
+    }
+
+    public function test_boundary_speed_per_activity_passes(): void
+    {
+        // Satu user, dua misi berbeda (kunci harian 1x per misi;
+        // guard auth di test ter-cache per test sehingga cukup 1 user).
+        $user = $this->makeWarga();
+        $walkMission = $this->makeMobilityMission(['title' => 'Jalan Kaki']);
+        $runMission = $this->makeMobilityMission(['title' => 'Lari Pagi']);
+
+        // Jalan: 3,5 km dalam 1800 detik = tepat 7 km/h -> lolos.
+        $this->postJson(
+            '/api/missions/mobility-sync',
+            array_merge(
+                $this->validPayload([
+                    'activity_type' => 'walking',
+                    'distance_km' => 3.5,
+                    'duration_seconds' => 1800,
+                ]),
+                ['mission_id' => $walkMission->id]
+            ),
+            $this->authHeader($user)
+        )->assertStatus(201);
+
+        // Lari: 7 km dalam 1800 detik = tepat 14 km/h -> lolos.
+        $this->postJson(
+            '/api/missions/mobility-sync',
+            array_merge(
+                $this->validPayload([
+                    'activity_type' => 'running',
+                    'distance_km' => 7,
+                    'duration_seconds' => 1800,
+                ]),
+                ['mission_id' => $runMission->id]
+            ),
+            $this->authHeader($user)
+        )->assertStatus(201);
     }
 
     public function test_validation_distance_bounds(): void
@@ -426,14 +600,13 @@ class MobilitySyncTest extends TestCase
     public function test_active_list_includes_target_distance(): void
     {
         $user = $this->makeWarga();
-        $mission = $this->makeMobilityMission(['target_distance_km' => 2.0]);
+        $mission = $this->makeMobilityMission(['target_distance_km' => 2.0, 'activity_type' => 'cycling']);
 
         $list = $this->getJson('/api/missions/active', $this->authHeader($user));
         $list->assertOk();
-        $this->assertEquals(
-            2.0,
-            (float) collect($list->json('data'))->firstWhere('id', $mission->id)['target_distance_km']
-        );
+        $item = collect($list->json('data'))->firstWhere('id', $mission->id);
+        $this->assertEquals(2.0, (float) $item['target_distance_km']);
+        $this->assertEquals('cycling', $item['activity_type']);
     }
 
     public function test_same_mission_twice_same_day_returns_409(): void
