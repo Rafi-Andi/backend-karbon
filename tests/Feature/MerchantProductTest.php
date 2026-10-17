@@ -127,7 +127,7 @@ class MerchantProductTest extends TestCase
             ->assertStatus(404);
     }
 
-    public function test_create_with_photo_stores_file_and_public_url(): void
+    public function test_create_with_photo_stores_cloudinary_url(): void
     {
         Storage::fake('public');
         [$user, $mitra] = $this->makeMitra();
@@ -141,10 +141,10 @@ class MerchantProductTest extends TestCase
             ->assertJsonPath('success', true);
 
         $imageUrl = $response->json('data.image_url');
-        $this->assertStringStartsWith('/storage/mitra-products/', (string) $imageUrl);
+        $this->assertStringStartsWith('https://res.cloudinary.com/', (string) $imageUrl);
 
         $product = MitraProduct::first();
-        Storage::disk('public')->assertExists($product->image_url);
+        $this->assertStringStartsWith('cloudinary:', (string) $product->image_url);
     }
 
     public function test_create_with_bad_photo_mime_returns_422(): void
@@ -160,7 +160,7 @@ class MerchantProductTest extends TestCase
             ->assertStatus(422);
     }
 
-    public function test_upload_photo_replaces_and_deletes_old(): void
+    public function test_upload_photo_replaces_old(): void
     {
         Storage::fake('public');
         [$user, $mitra] = $this->makeMitra();
@@ -181,7 +181,7 @@ class MerchantProductTest extends TestCase
             ->assertOk();
 
         $first = $product->refresh()->image_url;
-        Storage::disk('public')->assertExists($first);
+        $this->assertStringStartsWith('cloudinary:', (string) $first);
 
         $this->actingAs($user, 'sanctum')
             ->post("/api/merchant/products/{$product->id}/photo", [
@@ -192,8 +192,7 @@ class MerchantProductTest extends TestCase
 
         $second = $product->refresh()->image_url;
         $this->assertNotSame($first, $second);
-        Storage::disk('public')->assertExists($second);
-        Storage::disk('public')->assertMissing($first);
+        $this->assertStringStartsWith('cloudinary:', (string) $second);
     }
 
     public function test_upload_photo_other_merchant_returns_404(): void

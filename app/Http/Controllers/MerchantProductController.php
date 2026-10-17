@@ -8,6 +8,7 @@ use App\Http\Requests\UploadProductPhotoRequest;
 use App\Http\Resources\MitraProductResource;
 use App\Models\MitraProduct;
 use App\Models\MitraProfile;
+use App\Services\CloudinaryService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
@@ -72,8 +73,13 @@ class MerchantProductController extends Controller
 
         if ($request->hasFile('foto_produk')) {
             try {
-                $path = $request->file('foto_produk')->store("mitra-products/{$mitra->id}", 'public');
-                $product->update(['image_url' => $path]);
+                $publicId = CloudinaryService::fromConfig()->upload(
+                    $request->file('foto_produk'),
+                    "karbonkita/mitra-products/{$mitra->id}",
+                );
+                $product->update([
+                    'image_url' => CloudinaryService::PUBLIC_ID_PREFIX.$publicId,
+                ]);
             } catch (Throwable $e) {
                 $product->delete();
                 report($e);
@@ -122,8 +128,13 @@ class MerchantProductController extends Controller
         $old = $product->image_url;
 
         try {
-            $path = $request->file('foto_produk')->store("mitra-products/{$mitra->id}", 'public');
-            $product->update(['image_url' => $path]);
+            $publicId = CloudinaryService::fromConfig()->upload(
+                $request->file('foto_produk'),
+                "karbonkita/mitra-products/{$mitra->id}",
+            );
+            $product->update([
+                'image_url' => CloudinaryService::PUBLIC_ID_PREFIX.$publicId,
+            ]);
         } catch (Throwable $e) {
             report($e);
 

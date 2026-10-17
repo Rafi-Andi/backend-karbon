@@ -75,8 +75,12 @@ class MitraRegisterTest extends TestCase
 
         foreach (['foto_ktp', 'foto_nib', 'foto_toko', 'foto_toko_2', 'foto_toko_3'] as $field) {
             $this->assertNotNull($mitra->{$field});
-            Storage::disk('public')->assertExists($mitra->{$field});
+            $this->assertStringStartsWith('cloudinary:', (string) $mitra->{$field});
         }
+        $this->assertStringStartsWith(
+            'https://res.cloudinary.com/',
+            (string) $response->json('data.mitra.foto_urls.foto_toko'),
+        );
     }
 
     public function test_phone_with_dashes_is_normalized(): void
