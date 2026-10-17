@@ -2,10 +2,10 @@
 
 namespace App\Models;
 
+use App\Support\ImageUrl;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Support\Facades\Storage;
 
 class MitraProduct extends Model
 {
@@ -39,40 +39,17 @@ class MitraProduct extends Model
 
     /**
      * Petakan image_url ke URL publik siap tampil.
-     * DB menyimpan disk path lokal (mis. mitra-products/3/x.jpg) atau
-     * URL eksternal. Path lokal dipetakan via Storage::url agar
-     * konsisten dengan foto KTP/NIB/toko saat register.
+     * DB menyimpan disk path lokal (mis. mitra-products/3/x.jpg),
+     * penanda Cloudinary (`cloudinary:{public_id}`), atau URL eksternal.
+     * Lihat App\Support\ImageUrl.
      */
     public static function publicImageUrl(?string $raw): ?string
     {
-        if ($raw === null || trim($raw) === '') {
-            return null;
-        }
-
-        $raw = trim($raw);
-
-        if (str_starts_with($raw, 'http://') || str_starts_with($raw, 'https://')) {
-            return $raw;
-        }
-
-        $path = ltrim($raw, '/');
-
-        // Sudah berbentuk URL publik (/storage/...) — pakai apa adanya.
-        if (str_starts_with($path, 'storage/')) {
-            return '/'.$path;
-        }
-
-        return Storage::url($path);
+        return ImageUrl::resolve($raw);
     }
 
     public static function isLocalPath(?string $raw): bool
     {
-        if ($raw === null || trim($raw) === '') {
-            return false;
-        }
-
-        $raw = trim($raw);
-
-        return ! str_starts_with($raw, 'http://') && ! str_starts_with($raw, 'https://');
+        return ImageUrl::isLocalPath($raw);
     }
 }

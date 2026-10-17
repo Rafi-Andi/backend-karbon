@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Support\ImageUrl;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -67,5 +68,15 @@ class MitraProfile extends Model
     public function disbursements(): HasMany
     {
         return $this->hasMany(Disbursement::class);
+    }
+
+    /**
+     * URL publik siap tampil untuk foto dokumen/toko (KTP/NIB/toko).
+     * Mendukung path lokal lama, penanda Cloudinary, dan URL eksternal.
+     * Lihat App\Support\ImageUrl.
+     */
+    public static function publicPhotoUrl(?string $raw): ?string
+    {
+        return ImageUrl::resolve($raw);
     }
 }

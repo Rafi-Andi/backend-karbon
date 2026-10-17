@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Http\Requests\RegisterMitraRequest;
 use App\Models\MitraProfile;
 use App\Models\User;
+use App\Services\CloudinaryService;
 use App\Services\XenditService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
@@ -88,20 +89,26 @@ class MitraRegisterController extends Controller
                 return $user;
             });
 
-            // Simpan file setelah user ada (butuh user id untuk path).
+            // Simpan file setelah user ada (butuh user id untuk folder).
+            // Nilai tersimpan = penanda Cloudinary berisi public_id.
             $fileFields = ['foto_ktp', 'foto_nib', 'foto_toko', 'foto_toko_2', 'foto_toko_3'];
+            $cloudinary = CloudinaryService::fromConfig();
 
             foreach ($fileFields as $field) {
                 if ($request->hasFile($field)) {
-                    $storedPaths[$field] = $request->file($field)->store("mitra/{$user->id}", 'public');
+                    $publicId = $cloudinary->upload($request->file($field), "karbonkita/mitra/{$user->id}");
+                    $storedPaths[$field] = CloudinaryService::PUBLIC_ID_PREFIX.$publicId;
                 }
             }
 
             $user->mitraProfile->update($storedPaths);
         } catch (Throwable $e) {
-            // Bersihkan file yatim + user setengah jadi.
+            // Bersihkan file lokal yatim + user setengah jadi.
+            // File Cloudinary yang sudah terunggah dibiarkan (orphan).
             foreach ($storedPaths as $path) {
-                Storage::disk('public')->delete($path);
+                if (MitraProfile::isLocalPath($path)) {
+                    Storage::disk('public')->delete($path);
+                }
             }
             if (isset($user)) {
                 $user->delete();
@@ -139,11 +146,11 @@ class MitraRegisterController extends Controller
                     'bank_validation_status' => $mitra->bank_validation_status,
                     'bank_validation_note' => $mitra->bank_validation_note,
                     'foto_urls' => [
-                        'foto_toko' => $mitra->foto_toko ? Storage::url($mitra->foto_toko) : null,
-                        'foto_toko_2' => $mitra->foto_toko_2 ? Storage::url($mitra->foto_toko_2) : null,
-                        'foto_toko_3' => $mitra->foto_toko_3 ? Storage::url($mitra->foto_toko_3) : null,
-                        'foto_ktp' => $mitra->foto_ktp ? Storage::url($mitra->foto_ktp) : null,
-                        'foto_nib' => $mitra->foto_nib ? Storage::url($mitra->foto_nib) : null,
+                        'foto_toko' => MitraProfile::publicPhotoUrl($mitra->foto_toko),
+                        'foto_toko_2' => MitraProfile::publicPhotoUrl($mitra->foto_toko_2),
+                        'foto_toko_3' => MitraProfile::publicPhotoUrl($mitra->foto_toko_3),
+                        'foto_ktp' => MitraProfile::publicPhotoUrl($mitra->foto_ktp),
+                        'foto_nib' => MitraProfile::publicPhotoUrl($mitra->foto_nib),
                     ],
                 ],
             ],

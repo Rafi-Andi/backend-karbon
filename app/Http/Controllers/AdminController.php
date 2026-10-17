@@ -10,7 +10,6 @@ use App\Models\Voucher;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Storage;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 
 class AdminController extends Controller
@@ -110,15 +109,15 @@ class AdminController extends Controller
                     'kode_pos' => $mitra->usaha_kode_pos,
                 ],
                 'foto_toko' => [
-                    'foto_1' => $mitra->foto_toko ? Storage::url($mitra->foto_toko) : null,
-                    'foto_2' => $mitra->foto_toko_2 ? Storage::url($mitra->foto_toko_2) : null,
-                    'foto_3' => $mitra->foto_toko_3 ? Storage::url($mitra->foto_toko_3) : null,
+                    'foto_1' => MitraProfile::publicPhotoUrl($mitra->foto_toko),
+                    'foto_2' => MitraProfile::publicPhotoUrl($mitra->foto_toko_2),
+                    'foto_3' => MitraProfile::publicPhotoUrl($mitra->foto_toko_3),
                 ],
                 'dokumen' => [
                     'nomor_ktp' => $mitra->nomor_ktp,
-                    'foto_ktp' => $mitra->foto_ktp ? Storage::url($mitra->foto_ktp) : null,
+                    'foto_ktp' => MitraProfile::publicPhotoUrl($mitra->foto_ktp),
                     'nomor_nib' => $mitra->nomor_nib,
-                    'foto_nib' => $mitra->foto_nib ? Storage::url($mitra->foto_nib) : null,
+                    'foto_nib' => MitraProfile::publicPhotoUrl($mitra->foto_nib),
                 ],
                 'rekening' => [
                     'bank' => $mitra->nama_bank,

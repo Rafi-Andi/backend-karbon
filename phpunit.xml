@@ -34,5 +34,7 @@
         <!-- Paksa tanpa prefix agar format reference/key deterministik
              (KBK-CLAIM-{id}) apa pun isi XENDIT_KEY_PREFIX di .env dev. -->
         <env name="XENDIT_KEY_PREFIX" value=""/>
+        <env name="CLOUDINARY_MOCK" value="true"/>
+        <env name="CLOUDINARY_CLOUD_NAME" value="demo"/>
     </php>
 </phpunit>

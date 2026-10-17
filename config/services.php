@@ -42,6 +42,15 @@ return [
         'mock' => env('GEMINI_MOCK', false),
     ],
 
+    'cloudinary' => [
+        'cloud_name' => env('CLOUDINARY_CLOUD_NAME'),
+        'api_key' => env('CLOUDINARY_API_KEY'),
+        'api_secret' => env('CLOUDINARY_API_SECRET'),
+        'folder' => env('CLOUDINARY_FOLDER', 'karbonkita'),
+        'mock' => env('CLOUDINARY_MOCK', false),
+        'timeout' => env('CLOUDINARY_TIMEOUT', 30),
+    ],
+
     'xendit' => [
         'key' => env('XENDIT_API_KEY'),
         'base_url' => env('XENDIT_BASE_URL', 'https://api.xendit.co'),
