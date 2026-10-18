@@ -14,6 +14,13 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        // Produksi selalu di belakang reverse proxy (Caddy/CloudPanel) yang
+        // mengirim X-Forwarded-* lewat nginx container. Percayai header itu
+        // agar skema request (https) dan IP client asli terbaca — tanpa ini
+        // rate limit login ikut ter-bagi ke semua user (1 IP container).
+        // Aman karena port app (9000) tidak pernah dipublish ke host.
+        $middleware->trustProxies(at: '*');
+
         $middleware->alias([
             'auth.society' => SocietyTokenMiddleware::class,
             'role' => EnsureRole::class,

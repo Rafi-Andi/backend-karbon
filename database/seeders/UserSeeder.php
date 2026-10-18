@@ -16,7 +16,8 @@ class UserSeeder extends Seeder
         // Pejuang Pedal 2Km (150xp, 50pt) + Pahlawan Plastik (300xp, 100pt) + Kuis Hijau (50xp, 20pt)
         // + Sepeda Pagi (200xp, 75pt) + Pilah Elektronik (250xp, 80pt) + Jalan Kaki (100xp, 40pt)
         // + Petualangan Kuis (30xp, 15pt)
-        // Total: 1080 xp, 380 points
+        // Total misi: 1080 xp. Saldo poin di-set 10.000 untuk demo uji tukar
+        // voucher berulang (lihat juga DemoAccountSeeder untuk top-up ulang).
         $rafi = User::create([
             'name' => 'Moch. Rafi Andi',
             'email' => 'rafi@example.com',
@@ -38,7 +39,7 @@ class UserSeeder extends Seeder
             // menimpa via LevelService::resolveLevel().
             'level' => LevelService::resolveLevel(1080),
             'xp' => 1080,
-            'eco_points' => 380,
+            'eco_points' => 10000,
             'streak_days' => 7,
             'total_distance_km' => 45.50,
             'total_waste_kg' => 12.30,
