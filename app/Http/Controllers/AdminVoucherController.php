@@ -15,7 +15,10 @@ use Illuminate\Support\Facades\Validator;
  *
  * Halaman admin butuh: daftar SEMUA reward (termasuk nonaktif &
  * kedaluwarsa), siapa saja yang sudah menukarkannya, nonaktif/aktifkan,
- * serta ubah stok & tenggat. Nonaktif hanya menghentikan klaim baru —
+ * serta ubah tenggat. Stok TIDAK bisa diubah manual: stok × harga produk
+ * sudah jadi alokasi dana campaign saat voucher didanai, jadi edit stok
+ * lewat sini akan membuat saldonya tidak sinkron (lihat
+ * UpdateVoucherRequest). Nonaktif hanya menghentikan klaim baru —
  * voucher yang sudah ditukar tetap bisa diredeem sampai tenggatnya
  * (lihat MerchantController::redeem).
  */
@@ -120,7 +123,8 @@ class AdminVoucherController extends Controller
     }
 
     /**
-     * PATCH /api/admin/vouchers/{id} — ubah stok & tenggat manual.
+     * PATCH /api/admin/vouchers/{id} — ubah tenggat saja.
+     * Payload `stock` ditolak 422 (lihat UpdateVoucherRequest).
      */
     public function update(UpdateVoucherRequest $request, int $id): JsonResponse
     {

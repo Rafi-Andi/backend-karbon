@@ -7,8 +7,13 @@ use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Http\Exceptions\HttpResponseException;
 
 /**
- * PATCH /api/admin/vouchers/{id} — admin hanya boleh mengubah stok
- * (sisa) dan tenggat; nominal & judul dikunci oleh produk mitra.
+ * PATCH /api/admin/vouchers/{id} — admin hanya boleh mengubah tenggat.
+ *
+ * Stok dikunci sejak voucher didanai: stok × harga produk = alokasi dana
+ * campaign (lihat AdminDonationController::storeVoucher), sehingga ubah
+ * stok manual akan membuat saldo dana campaign tidak sinkron. Payload
+ * `stock` ditolak (prohibited) alih-alih diam-diam diabaikan — tambah
+ * stok lewat pendanaan voucher baru.
  */
 class UpdateVoucherRequest extends FormRequest
 {
@@ -20,30 +25,17 @@ class UpdateVoucherRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'stock' => ['sometimes', 'integer', 'min:0', 'max:10000'],
-            'expired_at' => ['sometimes', 'date'],
+            'expired_at' => ['required', 'date'],
+            'stock' => ['prohibited'],
         ];
-    }
-
-    public function withValidator(Validator $validator): void
-    {
-        $validator->after(function (Validator $validator) {
-            if (! $this->has('stock') && ! $this->has('expired_at')) {
-                $validator->errors()->add(
-                    'stock',
-                    'Isi minimal satu field: stock atau expired_at.'
-                );
-            }
-        });
     }
 
     public function messages(): array
     {
         return [
-            'stock.integer' => 'Stok harus berupa angka.',
-            'stock.min' => 'Stok tidak boleh negatif.',
-            'stock.max' => 'Stok maksimal 10000.',
+            'expired_at.required' => 'Tenggat wajib diisi.',
             'expired_at.date' => 'Tenggat harus berupa tanggal yang valid.',
+            'stock.prohibited' => 'Stok tidak bisa diubah manual karena terikat alokasi dana campaign.',
         ];
     }
 

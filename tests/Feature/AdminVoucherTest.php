@@ -11,7 +11,8 @@ use Tests\TestCase;
 
 /**
  * Kelola Reward admin: daftar semua reward, detail, daftar penukar,
- * toggle aktif/nonaktif, dan ubah stok/tenggat.
+ * toggle aktif/nonaktif, dan ubah tenggat (stok dikunci alokasi dana
+ * campaign — payload stok ditolak).
  */
 class AdminVoucherTest extends TestCase
 {
@@ -81,7 +82,7 @@ class AdminVoucherTest extends TestCase
     {
         $this->getJson('/api/admin/vouchers')->assertStatus(401);
         $this->patchJson('/api/admin/vouchers/1/status', ['is_active' => false])->assertStatus(401);
-        $this->patchJson('/api/admin/vouchers/1', ['stock' => 1])->assertStatus(401);
+        $this->patchJson('/api/admin/vouchers/1', ['expired_at' => '2030-01-01'])->assertStatus(401);
         $this->getJson('/api/admin/vouchers/1/claims')->assertStatus(401);
     }
 
@@ -94,7 +95,7 @@ class AdminVoucherTest extends TestCase
             $this->getJson('/api/admin/vouchers', $this->authHeader($user))->assertStatus(403);
             $this->getJson('/api/admin/vouchers/1', $this->authHeader($user))->assertStatus(403);
             $this->getJson('/api/admin/vouchers/1/claims', $this->authHeader($user))->assertStatus(403);
-            $this->patchJson('/api/admin/vouchers/1', ['stock' => 1], $this->authHeader($user))->assertStatus(403);
+            $this->patchJson('/api/admin/vouchers/1', ['expired_at' => '2030-01-01'], $this->authHeader($user))->assertStatus(403);
             $this->patchJson('/api/admin/vouchers/1/status', ['is_active' => false], $this->authHeader($user))->assertStatus(403);
         }
     }
@@ -187,29 +188,31 @@ class AdminVoucherTest extends TestCase
         $this->assertSame('claimed', $old['status']);
     }
 
-    public function test_update_stock_and_expired_at(): void
+    public function test_update_expired_at_only(): void
     {
         $admin = $this->makeAdmin();
         $mitra = $this->makeMitraProfile();
         $voucher = $this->makeVoucher($mitra);
 
-        // Stok saja.
-        $this->patchJson("/api/admin/vouchers/{$voucher->id}", ['stock' => 8], $this->authHeader($admin))
-            ->assertOk()
-            ->assertJsonPath('data.stock', 8);
-        $this->assertSame(8, $voucher->refresh()->stock);
-
-        // Tenggat saja.
+        // Tenggat tersimpan.
         $newDate = now()->addWeeks(2)->toDateString();
         $this->patchJson("/api/admin/vouchers/{$voucher->id}", ['expired_at' => $newDate], $this->authHeader($admin))
             ->assertOk()
             ->assertJsonPath('data.expired_at', $newDate);
         $this->assertSame($newDate, $voucher->refresh()->expired_at->toDateString());
 
-        // Stok 0 valid (= stok habis, tersembunyi dari marketplace).
-        $this->patchJson("/api/admin/vouchers/{$voucher->id}", ['stock' => 0], $this->authHeader($admin))
-            ->assertOk()
-            ->assertJsonPath('data.stock', 0);
+        // Stok dikirim bareng tenggat → ditolak (alokasi dana campaign
+        // hanya cocok dengan stok saat pendanaan), tidak ada yang berubah.
+        $this->patchJson("/api/admin/vouchers/{$voucher->id}", [
+            'expired_at' => now()->addMonths(2)->toDateString(),
+            'stock' => 99,
+        ], $this->authHeader($admin))
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['stock']);
+
+        $voucher->refresh();
+        $this->assertSame(5, $voucher->stock);
+        $this->assertSame($newDate, $voucher->expired_at->toDateString());
     }
 
     public function test_update_validation_and_404(): void
@@ -218,20 +221,19 @@ class AdminVoucherTest extends TestCase
         $mitra = $this->makeMitraProfile();
         $voucher = $this->makeVoucher($mitra);
 
-        $this->patchJson("/api/admin/vouchers/{$voucher->id}", ['stock' => -1], $this->authHeader($admin))
+        // Stok sudah tidak bisa diubah manual.
+        $this->patchJson("/api/admin/vouchers/{$voucher->id}", ['stock' => 8], $this->authHeader($admin))
             ->assertStatus(422)->assertJsonValidationErrors(['stock']);
-
-        $this->patchJson("/api/admin/vouchers/{$voucher->id}", ['stock' => 10001], $this->authHeader($admin))
-            ->assertStatus(422)->assertJsonValidationErrors(['stock']);
+        $this->assertSame(5, $voucher->refresh()->stock);
 
         $this->patchJson("/api/admin/vouchers/{$voucher->id}", ['expired_at' => 'bukan-tanggal'], $this->authHeader($admin))
             ->assertStatus(422)->assertJsonValidationErrors(['expired_at']);
 
         // Payload kosong: tidak boleh no-op diam-diam.
         $this->patchJson("/api/admin/vouchers/{$voucher->id}", [], $this->authHeader($admin))
-            ->assertStatus(422);
+            ->assertStatus(422)->assertJsonValidationErrors(['expired_at']);
 
-        $this->patchJson('/api/admin/vouchers/9999', ['stock' => 1], $this->authHeader($admin))
+        $this->patchJson('/api/admin/vouchers/9999', ['expired_at' => '2030-01-01'], $this->authHeader($admin))
             ->assertStatus(404);
     }
 
