@@ -17,6 +17,7 @@ class DatabaseSeeder extends Seeder
             VoucherSeeder::class,
             MarketplaceSeeder::class,
             DonationCampaignSeeder::class,
+            MitraProductSeeder::class,
             UserMissionSeeder::class,
             LeaderboardSeeder::class,
         ]);
