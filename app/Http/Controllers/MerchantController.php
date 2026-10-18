@@ -249,13 +249,16 @@ class MerchantController extends Controller
                     throw new HttpException(409, 'Voucher has already been redeemed.');
                 }
 
+                // Reward yang dinonaktifkan admin tetap boleh diredeem oleh
+                // pemegang voucher: poin warga sudah dibayarkan, nonaktif
+                // hanya menghentikan klaim baru di marketplace. Yang
+                // memblokir di sini hanya tenggat.
                 if (
                     $claim->status === 'expired'
-                    || ! $voucher->is_active
                     || ! $voucher->expired_at
                     || $voucher->expired_at->isPast()
                 ) {
-                    throw new HttpException(422, 'Voucher is expired or inactive.');
+                    throw new HttpException(422, 'Voucher is expired.');
                 }
 
                 if ((int) $voucher->mitra_profile_id !== (int) $mitra->id) {

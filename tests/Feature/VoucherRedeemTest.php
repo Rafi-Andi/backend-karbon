@@ -186,6 +186,26 @@ class VoucherRedeemTest extends TestCase
             ->assertStatus(422);
     }
 
+    public function test_inactive_voucher_with_existing_claim_can_still_be_redeemed(): void
+    {
+        $warga = $this->makeWarga();
+        $mitraUser = User::factory()->mitra()->create();
+        $mitra = $this->makeMitra($mitraUser);
+        // Admin menonaktifkan reward setelah warga menukar poin: klaim yang
+        // sudah ada tetap bisa diredeem sampai tenggat — nonaktif hanya
+        // menghentikan klaim baru di marketplace.
+        $voucher = $this->makeVoucher($mitra, ['is_active' => false]);
+        $claim = $this->makeClaim($warga, $voucher, 'KBK-INACT-1');
+
+        $this->actingAs($mitraUser, 'sanctum')
+            ->postJson('/api/vouchers/redeem', ['unique_code' => 'KBK-INACT-1'])
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.claim_id', $claim->id);
+
+        $this->assertSame('used', $claim->refresh()->status);
+    }
+
     public function test_pending_mitra_cannot_redeem(): void
     {
         $warga = $this->makeWarga();

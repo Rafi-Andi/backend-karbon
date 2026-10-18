@@ -4,6 +4,7 @@ use App\Http\Controllers\ActivityController;
 use App\Http\Controllers\AdminController;
 use App\Http\Controllers\AdminDonationController;
 use App\Http\Controllers\AdminMissionController;
+use App\Http\Controllers\AdminVoucherController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\CarbonStatsController;
 use App\Http\Controllers\DashboardController;
@@ -167,6 +168,23 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::patch('/admin/missions/{id}/status', [AdminMissionController::class, 'setStatus'])
             ->whereNumber('id')
             ->name('admin.missions.status');
+
+        // Kelola reward (voucher marketplace): daftar semua reward termasuk
+        // nonaktif, siapa yang menukar, toggle aktif/nonaktif, stok & tenggat.
+        Route::get('/admin/vouchers', [AdminVoucherController::class, 'index'])
+            ->name('admin.vouchers.index');
+        Route::get('/admin/vouchers/{id}', [AdminVoucherController::class, 'show'])
+            ->whereNumber('id')
+            ->name('admin.vouchers.show');
+        Route::patch('/admin/vouchers/{id}', [AdminVoucherController::class, 'update'])
+            ->whereNumber('id')
+            ->name('admin.vouchers.update');
+        Route::patch('/admin/vouchers/{id}/status', [AdminVoucherController::class, 'setStatus'])
+            ->whereNumber('id')
+            ->name('admin.vouchers.status');
+        Route::get('/admin/vouchers/{id}/claims', [AdminVoucherController::class, 'claims'])
+            ->whereNumber('id')
+            ->name('admin.vouchers.claims');
     });
 });
 
