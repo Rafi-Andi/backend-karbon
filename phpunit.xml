@@ -19,6 +19,9 @@
     </source>
     <php>
         <env name="APP_ENV" value="testing"/>
+        <!-- Kunci dummy test: route web (session/encryption) butuh APP_KEY;
+             tanpa ini test web gagal di mesin yang .env-nya kosong. -->
+        <env name="APP_KEY" value="base64:x5Ft0nz4ZGFqGd+7qPSwQhbzS182XNQl4jO0NZQyMUc="/>
         <env name="APP_MAINTENANCE_DRIVER" value="file"/>
         <env name="BCRYPT_ROUNDS" value="4"/>
         <env name="BROADCAST_CONNECTION" value="null"/>

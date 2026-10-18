@@ -51,6 +51,12 @@ return [
         'timeout' => env('CLOUDINARY_TIMEOUT', 30),
     ],
 
+    // Halaman monitoring akses juri (/monitoring?token=...).
+    // Token kosong = halaman nonaktif (selalu 404).
+    'monitoring' => [
+        'token' => env('MONITORING_TOKEN'),
+    ],
+
     'xendit' => [
         'key' => env('XENDIT_API_KEY'),
         'base_url' => env('XENDIT_BASE_URL', 'https://api.xendit.co'),

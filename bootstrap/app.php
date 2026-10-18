@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Middleware\EnsureRole;
+use App\Http\Middleware\LogApiAccess;
 use App\Http\Middleware\SocietyTokenMiddleware;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -25,6 +26,10 @@ return Application::configure(basePath: dirname(__DIR__))
             'auth.society' => SocietyTokenMiddleware::class,
             'role' => EnsureRole::class,
         ]);
+
+        // Catat semua request API ke access_logs untuk halaman /monitoring
+        // (demo/juri). Hanya grup api — halaman web tidak ikut tercatat.
+        $middleware->appendToGroup('api', LogApiAccess::class);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         //
