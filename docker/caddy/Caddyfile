@@ -1,0 +1,21 @@
+# Caddy — reverse proxy + HTTPS otomatis untuk VPS TANPA panel.
+#
+# Diaktifkan hanya lewat Docker profile "caddy":
+#   docker compose --profile caddy up -d --build
+#
+# Alur: Internet :443 -> Caddy (TLS otomatis Let's Encrypt)
+#                   -> service `web` (nginx) -> php-fpm `app:9000`
+#
+# Domain diambil dari env APP_DOMAIN (isi di .env). JANGAN aktifkan
+# profile ini di VPS yang sudah memakai CloudPanel/nginx host — di sana
+# host yang memegang 80/443 dan reverse-proxy ke 127.0.0.1:${WEB_PORT}.
+#
+# Opsional: bila ingin notifikasi email kedaluwarsa sertifikat, tambahkan
+# blok global berikut di paling atas file ini:
+#   {
+#       email kamu@domain.com
+#   }
+
+{$APP_DOMAIN} {
+	reverse_proxy web:80
+}

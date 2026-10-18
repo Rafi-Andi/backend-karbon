@@ -1,15 +1,18 @@
-# KarbonKita — production stack (pola CloudPanel reverse proxy)
+# KarbonKita — production stack (dua mode deploy, detail di DEPLOY.md)
 #
-# VPS sekolah pakai CloudPanel (Nginx host) yang sudah pegang 80/443.
-# Karena itu container ini TIDAK pakai Caddy & TIDAK bind 80/443:
-# - service `web` (nginx) hanya publish ke 127.0.0.1:${WEB_PORT} (localhost).
-# - CloudPanel membuat "Reverse Proxy" domain -> http://127.0.0.1:${WEB_PORT},
-#   dan CloudPanel yang urus HTTPS.
-# - app/queue/db tetap internal, tanpa port host -> tidak mungkin tabrakan.
+# MODE 1 — VPS TANPA panel (Caddy di container, HTTPS otomatis):
+#   docker compose --profile caddy up -d --build
+#   - service `caddy` memegang 80/443 + TLS Let's Encrypt (APP_DOMAIN dari .env)
+#   - request diteruskan ke service `web` (nginx) via network internal.
 #
-# Pemakaian:
-#   docker compose -p karbonkita up -d --build
-#   # lalu di CloudPanel: Site > Reverse Proxy -> http://127.0.0.1:8080
+# MODE 2 — VPS ber-CloudPanel (Nginx host sudah pegang 80/443):
+#   docker compose up -d --build
+#   - service `caddy` TIDAK ikut jalan (profile tidak dipakai).
+#   - service `web` (nginx) hanya publish ke 127.0.0.1:${WEB_PORT} (localhost).
+#   - CloudPanel membuat "Reverse Proxy" domain -> http://127.0.0.1:${WEB_PORT}.
+#
+# Di kedua mode: app/queue/db tetap internal, tanpa port host -> tidak
+# mungkin tabrakan dengan panel/projek lain.
 
 name: karbonkita
 
@@ -99,11 +102,42 @@ services:
     networks:
       - internal
 
+  # --- Caddy (opsional): HTTPS otomatis untuk VPS TANPA panel ---
+  # Ikut jalan HANYA bila compose memakai profile "caddy":
+  #   docker compose --profile caddy up -d --build
+  # Di VPS ber-CloudPanel jangan pakai profile ini (host yang pegang 80/443).
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    profiles: ["caddy"]
+    # Gagal cepat dengan pesan jelas bila APP_DOMAIN belum diisi di .env.
+    command: >
+      sh -c 'test -n "$$APP_DOMAIN" || { echo "[caddy] APP_DOMAIN kosong - isi dulu di .env"; exit 1; };
+      exec caddy run --config /etc/caddy/Caddyfile --adapter caddyfile'
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:-}
+    volumes:
+      - ./docker/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      # Sertifikat & state Caddy harus persisten antar-restart/rebuild.
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      web:
+        condition: service_started
+    networks:
+      - internal
+
 volumes:
   dbdata:
   storage_app:
   storage_logs:
   public_build:
+  caddy_data:
+  caddy_config:
 
 networks:
   # Jaringan privat per-projek (db & app hanya terlihat internal).
