@@ -1,5 +1,18 @@
 <?php
 
+/*
+| Penyedia AI vision untuk validasi foto sampah (lihat App\Services\GeminiService).
+|
+| AI_DRIVER=gemini (default)      -> Google AI Studio / Vertex AI Express.
+| AI_DRIVER=openai|groq|openrouter -> endpoint OpenAI-compatible (Bearer token).
+|
+| Saat driver BUKAN gemini, nilai GEMINI_MODEL/GEMINI_BASE_URL/
+| GEMINI_ENDPOINT_PATH/GEMINI_RELAY_KEY sengaja DIABAIKAN supaya sisa .env
+| Google tidak terpakai di penyedia lain (model & URL-nya beda). Pakai AI_*.
+*/
+$aiDriver = strtolower(trim((string) env('AI_DRIVER', env('GEMINI_DRIVER', 'gemini'))));
+$aiDriverIsGemini = $aiDriver === '' || $aiDriver === 'gemini';
+
 return [
 
     /*
@@ -35,19 +48,41 @@ return [
         ],
     ],
 
+    // Validasi foto sampah (AI vision, server-side).
+    // Nama array tetap "gemini" (bukan "ai") supaya config lama & cache tetap valid,
+    // tetapi penyedianya bisa ditukar lewat AI_DRIVER.
+    //
+    // Driver gemini (default): Google AI Studio / Vertex AI Express, auth ?key=.
+    // Driver openai          : endpoint OpenAI-compatible (Groq, OpenRouter, dst),
+    //                          auth Authorization: Bearer.
+    //
+    // Semua kunci punya fallback ke GEMINI_* agar .env lama tidak perlu diubah
+    // (fallback itu hanya aktif saat driver = gemini, lihat komentar di atas).
     'gemini' => [
-        'key' => env('GEMINI_API_KEY'),
-        'model' => env('GEMINI_MODEL', 'gemini-3.5-flash-lite'),
-        'min_confidence' => env('GEMINI_MIN_CONFIDENCE', 85),
-        'mock' => env('GEMINI_MOCK', false),
+        'driver' => $aiDriver === '' ? 'gemini' : $aiDriver,
+        'key' => env('AI_API_KEY', env('GEMINI_API_KEY')),
+        'model' => env('AI_MODEL', $aiDriverIsGemini ? env('GEMINI_MODEL') : null),
+        'min_confidence' => env('AI_MIN_CONFIDENCE', env('GEMINI_MIN_CONFIDENCE', 85)),
+        // GEMINI_MOCK lama sengaja tidak berlaku saat driver bukan gemini:
+        // AI asli wajib eksplisit (AI_MOCK=false) supaya sisa .env Google
+        // tidak diam-diam menghidupkan mode mock di penyedia lain.
+        'mock' => env('AI_MOCK', $aiDriverIsGemini ? env('GEMINI_MOCK', false) : false),
         // IP VPS/cloud sering diblokir Google ("User location is not supported").
-        // Kosongkan = panggil Google langsung. Isi salah satu bila diblokir:
+        // Kosongkan = panggil penyedia langsung. Isi bila perlu jalur lain:
         // - proxy   : http://user:pass@host:port (proxy residensial)
-        // - base_url: relay di host yang diizinkan (mis. https://relay.contoh.id)
-        'proxy' => env('GEMINI_PROXY'),
-        'base_url' => env('GEMINI_BASE_URL'),
+        // - base_url: relay/proxy sendiri (mis. https://relay.contoh.id)
+        'proxy' => env('AI_PROXY', env('GEMINI_PROXY')),
+        'base_url' => env('AI_BASE_URL', $aiDriverIsGemini ? env('GEMINI_BASE_URL') : null),
+        // Path endpoint; {model} diganti nama model.
+        // Default per driver (lihat GeminiService):
+        //   gemini : /v1beta/models/{model}:generateContent
+        //   openai : /chat/completions
+        // Vertex AI Express Mode (auth tetap ?key=, body sama):
+        //   AI_BASE_URL=https://aiplatform.googleapis.com
+        //   AI_ENDPOINT_PATH=/v1/publishers/google/models/{model}:generateContent
+        'endpoint_path' => env('AI_ENDPOINT_PATH', $aiDriverIsGemini ? env('GEMINI_ENDPOINT_PATH') : null),
         // Header X-Relay-Key untuk relay pribadi (opsional, pengaman).
-        'relay_key' => env('GEMINI_RELAY_KEY'),
+        'relay_key' => env('AI_RELAY_KEY', $aiDriverIsGemini ? env('GEMINI_RELAY_KEY') : null),
     ],
 
     'cloudinary' => [

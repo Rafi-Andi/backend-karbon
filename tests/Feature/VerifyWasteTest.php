@@ -480,4 +480,187 @@ class VerifyWasteTest extends TestCase
         $record = UserMission::find($response->json('data.user_mission_id'));
         $this->assertEquals('E-waste terpilah rapi', $record->ai_gemini_response['reason']);
     }
+
+    // ---------- Alasan terima/tolak yang dibaca pengguna ----------
+
+    private function useOpenAiFake(string $innerText, int $status = 200): void
+    {
+        config()->set('services.gemini.driver', 'openai');
+        config()->set('services.gemini.key', 'gsk-test');
+        config()->set('services.gemini.mock', false);
+        config()->set('services.gemini.model', 'qwen/qwen3.8-27b');
+        config()->set('services.gemini.base_url', 'https://api.groq.com/openai/v1');
+
+        Http::fake(['*' => Http::response([
+            'choices' => [['message' => ['role' => 'assistant', 'content' => $innerText]]],
+        ], $status)]);
+    }
+
+    public function test_verified_response_explains_why_accepted(): void
+    {
+        $this->useRealGeminiFake(
+            '{"is_valid":true,"confidence":95,"waste_category":"plastic","reason":"Botol plastik sudah dipisahkan."}'
+        );
+        $user = $this->makeWarga();
+        $mission = $this->makeMission();
+
+        $response = $this->postJson('/api/missions/verify-waste', [
+            'mission_id' => $mission->id,
+            'image' => UploadedFile::fake()->image('waste.jpg'),
+        ], $this->authHeader($user));
+
+        $response->assertStatus(201)
+            ->assertJsonPath('data.status', 'verified')
+            ->assertJsonPath('data.verification_note', 'AI mengenali foto ini sebagai plastik dengan keyakinan 95%.');
+    }
+
+    public function test_rejected_response_explains_why_rejected(): void
+    {
+        $this->useRealGeminiFake(
+            '{"is_valid":false,"confidence":40,"waste_category":"unknown","reason":"Foto terlalu gelap, sampah tidak terlihat."}'
+        );
+        $user = $this->makeWarga();
+        $mission = $this->makeMission();
+
+        $response = $this->postJson('/api/missions/verify-waste', [
+            'mission_id' => $mission->id,
+            'image' => UploadedFile::fake()->image('dark.jpg'),
+        ], $this->authHeader($user));
+
+        $response->assertOk()
+            ->assertJsonPath('data.status', 'rejected')
+            ->assertJsonPath('data.rejection_reason', 'AI menilai foto ini belum memenuhi kriteria misi.')
+            ->assertJsonPath('data.ai_reason', 'Foto terlalu gelap, sampah tidak terlihat.');
+
+        $this->assertNotEmpty($response->json('data.hint'));
+
+        // Alasan tersimpan juga di riwayat (kolom rejection_reason), bukan pesan teknis.
+        $record = UserMission::find($response->json('data.user_mission_id'));
+        $this->assertSame('AI menilai foto ini belum memenuhi kriteria misi.', $record->rejection_reason);
+        $this->assertStringNotContainsString('confidence', (string) $record->rejection_reason);
+    }
+
+    public function test_below_threshold_rejection_names_confidence_and_threshold(): void
+    {
+        $this->useRealGeminiFake(
+            '{"is_valid":true,"confidence":80,"waste_category":"plastic","reason":"Kelihatan plastik."}'
+        );
+        $user = $this->makeWarga();
+        $mission = $this->makeMission();
+
+        $response = $this->postJson('/api/missions/verify-waste', [
+            'mission_id' => $mission->id,
+            'image' => UploadedFile::fake()->image('waste.jpg'),
+        ], $this->authHeader($user));
+
+        $response->assertOk()->assertJsonPath('data.status', 'rejected');
+
+        $reason = (string) $response->json('data.rejection_reason');
+        $this->assertStringContainsString('80%', $reason);
+        $this->assertStringContainsString('85%', $reason);
+    }
+
+    public function test_wrong_category_hint_names_detected_category(): void
+    {
+        $this->useRealGeminiFake(
+            '{"is_valid":false,"confidence":90,"waste_category":"paper","reason":"Yang terlihat kardus, bukan plastik."}'
+        );
+        $user = $this->makeWarga();
+        $mission = $this->makeMission(['title' => 'Pahlawan Plastik Terpilah']);
+
+        $response = $this->postJson('/api/missions/verify-waste', [
+            'mission_id' => $mission->id,
+            'image' => UploadedFile::fake()->image('kardus.jpg'),
+        ], $this->authHeader($user));
+
+        $response->assertOk()->assertJsonPath('data.status', 'rejected');
+
+        $hint = (string) $response->json('data.hint');
+        $this->assertStringContainsString('kertas', $hint);
+        $this->assertStringContainsString('sesuai misi', $hint);
+    }
+
+    public function test_duplicate_response_includes_indonesian_reason(): void
+    {
+        $user = $this->makeWarga();
+        $mission = $this->makeMission();
+
+        $this->postJson('/api/missions/verify-waste', [
+            'mission_id' => $mission->id,
+            'image' => $this->fixedPng('first.png'),
+        ], $this->authHeader($user))->assertStatus(201);
+
+        $this->postJson('/api/missions/verify-waste', [
+            'mission_id' => $mission->id,
+            'image' => $this->fixedPng('second.png'),
+        ], $this->authHeader($user))
+            ->assertStatus(409)
+            ->assertJsonPath('data.rejection_reason', 'Foto ini sudah pernah dikirim sebelumnya. Setiap foto hanya boleh dipakai sekali.');
+    }
+
+    public function test_ai_unavailable_response_includes_indonesian_reason(): void
+    {
+        config()->set('services.gemini.key', 'test-key');
+        config()->set('services.gemini.mock', false);
+        Http::fake(['*' => Http::response(['error' => 'boom'], 500)]);
+
+        $user = $this->makeWarga();
+        $mission = $this->makeMission();
+
+        $this->postJson('/api/missions/verify-waste', [
+            'mission_id' => $mission->id,
+            'image' => UploadedFile::fake()->image('waste.jpg'),
+        ], $this->authHeader($user))
+            ->assertStatus(503)
+            ->assertJsonPath('data.status', 'pending')
+            ->assertJsonPath('data.rejection_reason', 'Validasi AI sedang tidak tersedia, jadi foto ini belum bisa dinilai.');
+    }
+
+    public function test_openai_driver_verifies_photo_end_to_end(): void
+    {
+        $this->useOpenAiFake(
+            '{"is_valid":true,"confidence":0.98,"waste_category":"plastic","reason":"Botol dan gelas plastik terlihat terpisah."}'
+        );
+        $user = $this->makeWarga();
+        $mission = $this->makeMission();
+
+        $response = $this->postJson('/api/missions/verify-waste', [
+            'mission_id' => $mission->id,
+            'image' => UploadedFile::fake()->image('waste.jpg'),
+        ], $this->authHeader($user));
+
+        $response->assertStatus(201)
+            ->assertJsonPath('data.status', 'verified')
+            ->assertJsonPath('data.confidence', 98)
+            ->assertJsonPath('data.waste_category', 'plastic')
+            ->assertJsonPath('data.xp_earned', 300)
+            ->assertJsonPath('data.verification_note', 'AI mengenali foto ini sebagai plastik dengan keyakinan 98%.');
+
+        Http::assertSent(fn ($request) => $request->url() === 'https://api.groq.com/openai/v1/chat/completions'
+            && $request->hasHeader('Authorization', 'Bearer gsk-test')
+            && str_contains((string) data_get($request->data(), 'messages.0.content.1.image_url.url'), 'data:image/'));
+
+        // confidence 0.98 (rasio) tersimpan sebagai 98, bukan 0.98.
+        $record = UserMission::find($response->json('data.user_mission_id'));
+        $this->assertEquals(98.0, (float) $record->confidence_score);
+        $this->assertSame('openai', $record->ai_gemini_response['provider']);
+        $this->assertEquals(300, WargaProfile::where('user_id', $user->id)->first()->xp);
+    }
+
+    public function test_openai_driver_rate_limit_returns_503_pending(): void
+    {
+        $this->useOpenAiFake('{"error":{"message":"Rate limit reached"}}', 429);
+        $user = $this->makeWarga();
+        $mission = $this->makeMission();
+
+        $this->postJson('/api/missions/verify-waste', [
+            'mission_id' => $mission->id,
+            'image' => UploadedFile::fake()->image('waste.jpg'),
+        ], $this->authHeader($user))
+            ->assertStatus(503)
+            ->assertJsonPath('data.status', 'pending');
+
+        // Bukan mock: user tidak dapat poin, tapi juga tidak diblokir permanen.
+        $this->assertEquals(0, WargaProfile::where('user_id', $user->id)->first()->eco_points);
+    }
 }

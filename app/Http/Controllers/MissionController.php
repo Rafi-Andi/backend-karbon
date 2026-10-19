@@ -48,6 +48,31 @@ class MissionController extends Controller
     ];
 
     /**
+     * Alasan penolakan foto yang bisa dibaca pengguna (Bahasa Indonesia).
+     * Dipakai berulang di beberapa jalur (fast-path, dalam transaksi, respons).
+     */
+    public const REASON_DUPLICATE = 'Foto ini sudah pernah dikirim sebelumnya. Setiap foto hanya boleh dipakai sekali.';
+
+    public const HINT_DUPLICATE = 'Ambil foto baru dari kondisi saat ini — foto lama yang sama tidak bisa dipakai dua kali.';
+
+    public const REASON_AI_UNAVAILABLE = 'Validasi AI sedang tidak tersedia, jadi foto ini belum bisa dinilai.';
+
+    /**
+     * Label kategori sampah untuk pesan ke pengguna.
+     *
+     * @var array<string, string>
+     */
+    public const CATEGORY_LABELS = [
+        'plastic' => 'plastik',
+        'paper' => 'kertas',
+        'organic' => 'organik',
+        'electronic' => 'elektronik',
+        'residue' => 'residu',
+        'mixed' => 'sampah campuran',
+        'unknown' => 'sampah terpilah',
+    ];
+
+    /**
      * GET /api/missions/active — daftar misi mobility & waste yang aktif.
      * Quiz dikecualikan (lewat Saga), inactive dikecualikan.
      * Tiap item membawa `is_completed_today` (verified hari ini, WIB)
@@ -145,7 +170,7 @@ class MissionController extends Controller
                 'proof_image_hash' => $hash,
                 'status' => 'rejected',
                 'anti_fraud_flagged' => true,
-                'rejection_reason' => 'Duplicate image detected. Each photo may only be submitted once.',
+                'rejection_reason' => self::REASON_DUPLICATE,
             ]);
 
             return response()->json([
@@ -154,6 +179,8 @@ class MissionController extends Controller
                 'data' => [
                     'user_mission_id' => $duplicate->id,
                     'status' => 'rejected',
+                    'rejection_reason' => self::REASON_DUPLICATE,
+                    'hint' => self::HINT_DUPLICATE,
                 ],
             ], 409);
         }
@@ -182,7 +209,7 @@ class MissionController extends Controller
                 'proof_image_url' => $path,
                 'proof_image_hash' => $hash,
                 'status' => 'pending',
-                'rejection_reason' => 'AI validation temporarily unavailable. Please try again later.',
+                'rejection_reason' => self::REASON_AI_UNAVAILABLE,
                 'ai_gemini_response' => ['meta' => ['mime' => $mime, 'exif_gps' => $exifGps]],
             ]);
 
@@ -192,6 +219,8 @@ class MissionController extends Controller
                 'data' => [
                     'user_mission_id' => $pending->id,
                     'status' => 'pending',
+                    'rejection_reason' => self::REASON_AI_UNAVAILABLE,
+                    'hint' => 'Tidak ada poin yang hilang. Coba unggah lagi beberapa saat lagi.',
                 ],
             ], 503);
         }
@@ -205,7 +234,7 @@ class MissionController extends Controller
                     'proof_image_hash' => $hash,
                     'status' => 'rejected',
                     'anti_fraud_flagged' => true,
-                    'rejection_reason' => 'Duplicate image detected. Each photo may only be submitted once.',
+                    'rejection_reason' => self::REASON_DUPLICATE,
                 ]);
 
                 return ['duplicate' => true, 'user_mission_id' => $duplicate->id];
@@ -225,6 +254,8 @@ class MissionController extends Controller
                 return ['capped' => true, 'mission_id' => (int) $mission->id];
             }
 
+            $rejectionReason = $passes ? null : $this->rejectionReason($ai, $gemini->getMinConfidence());
+
             $userMission = UserMission::create([
                 'user_id' => $user->id,
                 'mission_id' => $mission->id,
@@ -235,14 +266,7 @@ class MissionController extends Controller
                 ]),
                 'confidence_score' => $ai['confidence'],
                 'status' => $passes ? 'verified' : 'rejected',
-                'rejection_reason' => $passes
-                    ? null
-                    : sprintf(
-                        'AI validation failed (valid: %s, confidence: %s, threshold: %d).',
-                        $ai['is_valid'] ? 'yes' : 'no',
-                        $ai['confidence'],
-                        $gemini->getMinConfidence()
-                    ),
+                'rejection_reason' => $rejectionReason,
             ]);
 
             if (! $passes) {
@@ -255,6 +279,10 @@ class MissionController extends Controller
                     'waste_category' => $ai['waste_category'],
                     'xp_earned' => 0,
                     'points_earned' => 0,
+                    // Alasan yang ditampilkan ke pengguna (Bahasa Indonesia).
+                    'rejection_reason' => $rejectionReason,
+                    'ai_reason' => $ai['reason'] !== '' ? $ai['reason'] : null,
+                    'hint' => $this->rejectionHint($ai),
                 ];
             }
 
@@ -298,6 +326,8 @@ class MissionController extends Controller
                 'new_level' => $newLevel,
                 'new_eco_points' => $newPoints,
                 'streak_days' => $newStreak,
+                // Penjelasan singkat kenapa foto ini diterima (Bahasa Indonesia).
+                'verification_note' => $this->verificationNote($ai),
             ];
         });
 
@@ -312,6 +342,8 @@ class MissionController extends Controller
                 'data' => [
                     'user_mission_id' => $result['user_mission_id'],
                     'status' => 'rejected',
+                    'rejection_reason' => self::REASON_DUPLICATE,
+                    'hint' => self::HINT_DUPLICATE,
                 ],
             ], 409);
         }
@@ -329,6 +361,68 @@ class MissionController extends Controller
             'message' => "Waste verified! +{$result['xp_earned']} XP, +{$result['points_earned']} points.",
             'data' => $result,
         ], 201);
+    }
+
+    /**
+     * Alasan penolakan yang ditampilkan ke pengguna (Bahasa Indonesia).
+     * Dibedakan: foto tidak lolos validasi vs foto lolos tapi confidence rendah.
+     *
+     * @param  array<string, mixed>  $ai
+     */
+    private function rejectionReason(array $ai, int $threshold): string
+    {
+        if (! ($ai['is_valid'] ?? false)) {
+            return 'AI menilai foto ini belum memenuhi kriteria misi.';
+        }
+
+        return sprintf(
+            'AI sudah mengenali sampahnya, tetapi keyakinannya baru %s%% (minimal %d%%).',
+            $this->formatConfidence($ai['confidence'] ?? 0),
+            $threshold
+        );
+    }
+
+    /**
+     * Saran perbaikan untuk pengguna setelah foto ditolak.
+     *
+     * @param  array<string, mixed>  $ai
+     */
+    private function rejectionHint(array $ai): string
+    {
+        $category = (string) ($ai['waste_category'] ?? 'unknown');
+
+        if (! ($ai['is_valid'] ?? false)) {
+            if ($category !== 'unknown' && isset(self::CATEGORY_LABELS[$category])) {
+                return sprintf(
+                    'Yang terbaca di foto: %s. Pastikan jenis sampahnya sesuai misi ini, lalu foto ulang.',
+                    self::CATEGORY_LABELS[$category]
+                );
+            }
+
+            return 'Pastikan sampah terlihat jelas dan sudah terpilah sesuai misi, lalu foto ulang dari jarak dekat dengan pencahayaan cukup.';
+        }
+
+        return 'Coba foto ulang dari jarak lebih dekat dengan pencahayaan cukup agar AI lebih yakin.';
+    }
+
+    /**
+     * Penjelasan singkat kenapa foto diterima — apa yang dikenali AI.
+     *
+     * @param  array<string, mixed>  $ai
+     */
+    private function verificationNote(array $ai): string
+    {
+        return sprintf(
+            'AI mengenali foto ini sebagai %s dengan keyakinan %s%%.',
+            self::CATEGORY_LABELS[(string) ($ai['waste_category'] ?? 'unknown')] ?? 'sampah terpilah',
+            $this->formatConfidence($ai['confidence'] ?? 0)
+        );
+    }
+
+    /** 92.0 → "92", 72.5 → "72.5" */
+    private function formatConfidence(mixed $value): string
+    {
+        return rtrim(rtrim(number_format((float) $value, 1, '.', ''), '0'), '.');
     }
 
     /**

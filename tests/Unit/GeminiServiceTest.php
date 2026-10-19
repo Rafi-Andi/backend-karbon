@@ -277,6 +277,30 @@ class GeminiServiceTest extends TestCase
         });
     }
 
+    public function test_vertex_express_endpoint_path_is_used_when_configured(): void
+    {
+        Http::fake(['*' => Http::response($this->geminiResponse(
+            '{"is_valid":true,"confidence":90,"waste_category":"plastic","reason":"ok"}'
+        ), 200)]);
+
+        $service = new GeminiService(
+            apiKey: 'vertex-key',
+            model: 'gemini-3.5-flash-lite',
+            mock: false,
+            baseUrl: 'https://aiplatform.googleapis.com',
+            endpointPath: '/v1/publishers/google/models/{model}:generateContent',
+        );
+
+        $service->verifyWaste($this->imagePath, 'image/jpeg');
+
+        Http::assertSent(function ($request) {
+            return str_starts_with(
+                $request->url(),
+                'https://aiplatform.googleapis.com/v1/publishers/google/models/gemini-3.5-flash-lite:generateContent?key=vertex-key'
+            );
+        });
+    }
+
     public function test_proxy_option_is_passed_to_http_client(): void
     {
         Http::fake(['*' => Http::response($this->geminiResponse(
@@ -445,5 +469,202 @@ class GeminiServiceTest extends TestCase
         $this->assertStringNotContainsString('Mission being validated', $text);
         $this->assertStringNotContainsString('STRICT RULE', $text);
         $this->assertStringContainsString('Bahasa Indonesia', $text);
+    }
+
+    // ---------- Driver OpenAI-compatible (Groq, OpenRouter, dst) ----------
+
+    private function openAiResponse(string $innerText): array
+    {
+        return [
+            'id' => 'chatcmpl-test',
+            'object' => 'chat.completion',
+            'model' => 'qwen/qwen3.8-27b',
+            'choices' => [
+                [
+                    'index' => 0,
+                    'message' => ['role' => 'assistant', 'content' => $innerText],
+                    'finish_reason' => 'stop',
+                ],
+            ],
+        ];
+    }
+
+    private function openAiService(string $apiKey = 'gsk-test'): GeminiService
+    {
+        return new GeminiService(
+            apiKey: $apiKey,
+            model: 'qwen/qwen3.8-27b',
+            mock: false,
+            driver: GeminiService::DRIVER_OPENAI,
+        );
+    }
+
+    public function test_openai_driver_posts_chat_completions_with_bearer_and_data_url(): void
+    {
+        Http::fake(['*' => Http::response($this->openAiResponse(
+            '{"is_valid":true,"confidence":0.98,"waste_category":"plastic","reason":"Botol plastik terlihat jelas di kantong."}'
+        ), 200)]);
+
+        $service = $this->openAiService();
+        $result = $service->verifyWaste($this->imagePath, 'image/png');
+
+        $this->assertSame('openai', $service->getDriver());
+        $this->assertTrue($result['is_valid']);
+        // Rasio 0-1 milik Qwen dinormalkan ke 0-100.
+        $this->assertEquals(98.0, $result['confidence']);
+        $this->assertTrue($service->passesThreshold($result));
+        $this->assertSame('plastic', $result['waste_category']);
+        $this->assertSame('openai', $result['provider']);
+        $this->assertSame('qwen/qwen3.8-27b', $result['model']);
+
+        Http::assertSent(function ($request) {
+            $payload = $request->data();
+            $content = $payload['messages'][0]['content'] ?? [];
+
+            return $request->url() === 'https://api.groq.com/openai/v1/chat/completions'
+                && $request->hasHeader('Authorization', 'Bearer gsk-test')
+                && ($payload['model'] ?? null) === 'qwen/qwen3.8-27b'
+                && ($payload['response_format']['type'] ?? null) === 'json_object'
+                && ($content[0]['type'] ?? null) === 'text'
+                && ($content[1]['type'] ?? null) === 'image_url'
+                && ($content[1]['image_url']['url'] ?? null) === 'data:image/png;base64,'.$this->imageBase64
+                && str_contains((string) ($content[0]['text'] ?? ''), 'Bahasa Indonesia');
+        });
+    }
+
+    public function test_openai_driver_alias_and_config_defaults_are_used(): void
+    {
+        Http::fake(['*' => Http::response($this->openAiResponse(
+            '{"is_valid":true,"confidence":90,"waste_category":"paper","reason":"ok"}'
+        ), 200)]);
+
+        config()->set('services.gemini.driver', 'groq');
+        config()->set('services.gemini.key', 'gsk-config');
+        // AI_MODEL/GEMINI_MODEL kosong → default mengikuti driver (Qwen via Groq).
+        config()->set('services.gemini.model', null);
+
+        $service = new GeminiService(mock: false);
+
+        $this->assertSame('openai', $service->getDriver());
+        $this->assertSame('qwen/qwen3.8-27b', $service->getModel());
+
+        $service->verifyWaste($this->imagePath, 'image/jpeg');
+
+        Http::assertSent(fn ($request) => $request->url() === 'https://api.groq.com/openai/v1/chat/completions'
+            && $request->hasHeader('Authorization', 'Bearer gsk-config'));
+    }
+
+    public function test_gemini_driver_stays_default_without_config(): void
+    {
+        Http::fake(['*' => Http::response($this->geminiResponse(
+            '{"is_valid":true,"confidence":90,"waste_category":"plastic","reason":"ok"}'
+        ), 200)]);
+
+        $service = new GeminiService(apiKey: 'k', mock: false);
+
+        $this->assertSame('gemini', $service->getDriver());
+
+        $service->verifyWaste($this->imagePath, 'image/jpeg');
+
+        Http::assertSent(fn ($request) => str_starts_with($request->url(), 'https://generativelanguage.googleapis.com/v1beta/models/'));
+    }
+
+    public function test_openai_driver_custom_endpoint_for_openrouter(): void
+    {
+        Http::fake(['*' => Http::response($this->openAiResponse(
+            '{"is_valid":true,"confidence":88,"waste_category":"plastic","reason":"ok"}'
+        ), 200)]);
+
+        $service = new GeminiService(
+            apiKey: 'sk-or-test',
+            model: 'google/gemini-2.5-flash',
+            mock: false,
+            baseUrl: 'https://openrouter.ai/api/v1/',
+            driver: GeminiService::DRIVER_OPENAI,
+        );
+
+        $service->verifyWaste($this->imagePath, 'image/jpeg');
+
+        Http::assertSent(fn ($request) => $request->url() === 'https://openrouter.ai/api/v1/chat/completions'
+            && $request->hasHeader('Authorization', 'Bearer sk-or-test'));
+    }
+
+    public function test_openai_driver_extracts_json_wrapped_in_prose_and_fences(): void
+    {
+        Http::fake(['*' => Http::response($this->openAiResponse(
+            "Berikut hasil analisisnya:\n```json\n".
+            '{"is_valid":true,"confidence":91,"waste_category":"organic","reason":"Kompos terlihat."}'.
+            "\n```\nSemoga membantu."
+        ), 200)]);
+
+        $service = $this->openAiService();
+        $result = $service->verifyWaste($this->imagePath, 'image/jpeg');
+
+        $this->assertTrue($result['is_valid']);
+        $this->assertEquals(91.0, $result['confidence']);
+        $this->assertSame('organic', $result['waste_category']);
+        $this->assertSame('Kompos terlihat.', $result['reason']);
+    }
+
+    public function test_openai_driver_accepts_content_array_parts(): void
+    {
+        Http::fake(['*' => Http::response([
+            'choices' => [
+                ['message' => ['role' => 'assistant', 'content' => [
+                    ['type' => 'text', 'text' => '{"is_valid":true,"confidence":77,"waste_category":"paper","reason":"ok"}'],
+                ]]],
+            ],
+        ], 200)]);
+
+        $result = $this->openAiService()->verifyWaste($this->imagePath, 'image/jpeg');
+
+        $this->assertTrue($result['is_valid']);
+        $this->assertEquals(77.0, $result['confidence']);
+    }
+
+    public function test_string_boolean_false_is_treated_as_invalid(): void
+    {
+        Http::fake(['*' => Http::response($this->openAiResponse(
+            '{"is_valid":"false","confidence":95,"waste_category":"plastic","reason":"Bukan sampah plastik, ini kardus."}'
+        ), 200)]);
+
+        $result = $this->openAiService()->verifyWaste($this->imagePath, 'image/jpeg');
+
+        $this->assertFalse($result['is_valid']);
+        $this->assertSame('Bukan sampah plastik, ini kardus.', $result['reason']);
+    }
+
+    public function test_openai_driver_reports_rate_limit_and_logs_quota_warning(): void
+    {
+        Log::spy();
+
+        Http::fake(['*' => Http::response([
+            'error' => ['message' => 'Rate limit reached for model `qwen/qwen3.8-27b` on tokens per day (TPD).'],
+        ], 429)]);
+
+        $service = $this->openAiService();
+
+        try {
+            $service->verifyWaste($this->imagePath, 'image/jpeg');
+            $this->fail('Expected RuntimeException was not thrown.');
+        } catch (RuntimeException $e) {
+            $this->assertStringContainsString('HTTP 429', $e->getMessage());
+            $this->assertStringContainsString('Rate limit reached', $e->getMessage());
+        }
+
+        Log::shouldHaveReceived('warning')
+            ->withArgs(fn (string $message) => str_contains($message, 'batas kuota'))
+            ->once();
+    }
+
+    public function test_openai_driver_rejects_unknown_category_fallback(): void
+    {
+        Http::fake(['*' => Http::response($this->openAiResponse(
+            '{"is_valid":true,"confidence":90,"waste_category":"  ","reason":"ok"}'
+        ), 200)]);
+
+        $result = $this->openAiService()->verifyWaste($this->imagePath, 'image/jpeg');
+
+        $this->assertSame('unknown', $result['waste_category']);
     }
 }
