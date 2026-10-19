@@ -37,9 +37,17 @@ return [
 
     'gemini' => [
         'key' => env('GEMINI_API_KEY'),
-        'model' => env('GEMINI_MODEL', 'gemini-1.5-flash'),
+        'model' => env('GEMINI_MODEL', 'gemini-3.5-flash-lite'),
         'min_confidence' => env('GEMINI_MIN_CONFIDENCE', 85),
         'mock' => env('GEMINI_MOCK', false),
+        // IP VPS/cloud sering diblokir Google ("User location is not supported").
+        // Kosongkan = panggil Google langsung. Isi salah satu bila diblokir:
+        // - proxy   : http://user:pass@host:port (proxy residensial)
+        // - base_url: relay di host yang diizinkan (mis. https://relay.contoh.id)
+        'proxy' => env('GEMINI_PROXY'),
+        'base_url' => env('GEMINI_BASE_URL'),
+        // Header X-Relay-Key untuk relay pribadi (opsional, pengaman).
+        'relay_key' => env('GEMINI_RELAY_KEY'),
     ],
 
     'cloudinary' => [

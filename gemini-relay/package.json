@@ -1,0 +1,16 @@
+{
+  "name": "karbonkita-gemini-relay",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Relay tipis ke Gemini API untuk server yang IP-nya diblokir Google (User location is not supported).",
+  "main": "worker.js",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "node relay.test.mjs"
+  },
+  "devDependencies": {
+    "wrangler": "^3.99.0"
+  }
+}

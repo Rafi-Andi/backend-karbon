@@ -27,7 +27,7 @@ class VerifyWasteTest extends TestCase
         Storage::fake('public');
         config()->set('services.gemini', [
             'key' => null,
-            'model' => 'gemini-1.5-flash',
+            'model' => 'gemini-3.5-flash-lite',
             'min_confidence' => 85,
             'mock' => true,
         ]);

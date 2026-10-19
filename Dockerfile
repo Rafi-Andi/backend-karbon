@@ -27,6 +27,7 @@ RUN apk add --no-cache \
         freetype-dev \
         oniguruma-dev \
         mysql-client \
+        su-exec \
     && docker-php-ext-configure gd --with-freetype --with-jpeg \
     && docker-php-ext-install -j"$(nproc)" \
         pdo_mysql \

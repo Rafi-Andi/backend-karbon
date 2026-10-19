@@ -1,0 +1,9 @@
+name = "karbonkita-gemini-relay"
+main = "worker.js"
+compatibility_date = "2026-10-01"
+
+# Jangan taruh RELAY_KEY di file ini (ter-commit). Pakai:
+#   npx wrangler secret put RELAY_KEY
+# Variabel di bawah hanya non-rahasia.
+[vars]
+# Kosongkan. Key Gemini tetap dikirim backend lewat query string.

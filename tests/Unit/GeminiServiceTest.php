@@ -5,6 +5,7 @@ namespace Tests\Unit;
 use App\Models\Mission;
 use App\Services\GeminiService;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use RuntimeException;
 use Tests\TestCase;
 
@@ -149,7 +150,7 @@ class GeminiServiceTest extends TestCase
 
     public function test_real_mode_throws_on_http_error(): void
     {
-        Http::fake(['*' => Http::response(['error' => 'boom'], 500)]);
+        Http::fake(['*' => Http::response(['error' => ['message' => 'boom']], 500)]);
 
         $service = new GeminiService(apiKey: 'real-key', mock: false);
 
@@ -157,6 +158,52 @@ class GeminiServiceTest extends TestCase
         $this->expectExceptionMessageMatches('/HTTP 500/');
 
         $service->verifyWaste($this->imagePath, 'image/jpeg');
+    }
+
+    public function test_http_error_message_includes_google_reason(): void
+    {
+        Http::fake([
+            '*' => Http::response([
+                'error' => [
+                    'code' => 400,
+                    'message' => 'User location is not supported for the API use.',
+                    'status' => 'FAILED_PRECONDITION',
+                ],
+            ], 400),
+        ]);
+
+        $service = new GeminiService(apiKey: 'real-key', mock: false);
+
+        try {
+            $service->verifyWaste($this->imagePath, 'image/jpeg');
+            $this->fail('Expected RuntimeException was not thrown.');
+        } catch (RuntimeException $e) {
+            $this->assertStringContainsString('HTTP 400', $e->getMessage());
+            $this->assertStringContainsString('User location is not supported', $e->getMessage());
+        }
+    }
+
+    public function test_location_block_is_logged_as_warning(): void
+    {
+        Log::spy();
+
+        Http::fake([
+            '*' => Http::response([
+                'error' => ['message' => 'User location is not supported for the API use.'],
+            ], 400),
+        ]);
+
+        $service = new GeminiService(apiKey: 'real-key', mock: false);
+
+        try {
+            $service->verifyWaste($this->imagePath, 'image/jpeg');
+        } catch (RuntimeException) {
+            // expected
+        }
+
+        Log::shouldHaveReceived('warning')
+            ->withArgs(fn (string $message) => str_contains($message, 'Gemini menolak lokasi IP server'))
+            ->once();
     }
 
     public function test_real_mode_throws_on_invalid_json_text(): void
@@ -208,17 +255,57 @@ class GeminiServiceTest extends TestCase
         $this->assertEquals(0.0, $service->verifyWaste($this->imagePath, 'image/jpeg')['confidence']);
     }
 
+    public function test_custom_base_url_is_used_for_relay(): void
+    {
+        Http::fake(['*' => Http::response($this->geminiResponse(
+            '{"is_valid":true,"confidence":90,"waste_category":"plastic","reason":"ok"}'
+        ), 200)]);
+
+        $service = new GeminiService(
+            apiKey: 'real-key',
+            model: 'gemini-3.5-flash-lite',
+            mock: false,
+            baseUrl: 'https://relay.contoh.id/',
+            relayKey: 'rahasia',
+        );
+
+        $service->verifyWaste($this->imagePath, 'image/jpeg');
+
+        Http::assertSent(function ($request) {
+            return str_starts_with($request->url(), 'https://relay.contoh.id/v1beta/models/gemini-3.5-flash-lite:generateContent')
+                && $request->hasHeader('X-Relay-Key', 'rahasia');
+        });
+    }
+
+    public function test_proxy_option_is_passed_to_http_client(): void
+    {
+        Http::fake(['*' => Http::response($this->geminiResponse(
+            '{"is_valid":true,"confidence":90,"waste_category":"plastic","reason":"ok"}'
+        ), 200)]);
+
+        $service = new GeminiService(
+            apiKey: 'real-key',
+            model: 'gemini-3.5-flash-lite',
+            mock: false,
+            proxy: 'http://user:pass@proxy.contoh.id:8080',
+        );
+
+        $service->verifyWaste($this->imagePath, 'image/jpeg');
+
+        Http::assertSentCount(1);
+    }
+
     public function test_request_sends_base64_image_and_mime(): void
     {
         Http::fake(['*' => Http::response($this->geminiResponse(
             '{"is_valid":true,"confidence":90,"waste_category":"electronic","reason":"E-waste box"}'
         ), 200)]);
 
-        $service = new GeminiService(apiKey: 'real-key', model: 'gemini-1.5-flash', mock: false);
+        $service = new GeminiService(apiKey: 'real-key', model: 'gemini-3.5-flash-lite', mock: false);
         $service->verifyWaste($this->imagePath, 'image/png');
 
         Http::assertSent(function ($request) {
-            if (! str_contains($request->url(), 'gemini-1.5-flash:generateContent')) {
+            if (! str_contains($request->url(), 'gemini-3.5-flash-lite:generateContent')) {
                 return false;
             }
             $payload = $request->data();

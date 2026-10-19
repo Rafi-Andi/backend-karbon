@@ -30,6 +30,10 @@ prepare_app() {
     # Pastikan folder yang ditulis runtime ada (aman untuk volume mount).
     mkdir -p storage/framework/{cache/data,sessions,views} storage/logs bootstrap/cache
 
+    # Volume storage_* bisa terlanjur dimiliki root dari run sebelumnya.
+    # Samakan dulu supaya www-data bisa menulis log/sesi.
+    chown -R www-data:www-data storage bootstrap/cache 2>/dev/null || true
+
     if [ ! -L public/storage ]; then
         php artisan storage:link || true
     fi
@@ -60,12 +64,18 @@ wait_for_db
 case "$1" in
     "php-fpm")
         prepare_app
+        # php-fpm master tetap root (perlu bind :9000), worker-nya www-data.
+        # Setelah cache dibuat root, kembalikan kepemilikan ke www-data.
+        chown -R www-data:www-data storage bootstrap/cache 2>/dev/null || true
         ;;
     "queue")
-        # Service queue: siapkan config cache lalu jalankan worker Laravel.
+        # Service queue: siapkan config cache lalu jalankan worker Laravel
+        # sebagai www-data (bukan root) agar file yang dibuat konsisten.
         mkdir -p storage/framework/{cache/data,sessions,views} storage/logs bootstrap/cache
+        chown -R www-data:www-data storage bootstrap/cache 2>/dev/null || true
         php artisan config:cache || true
-        set -- php artisan queue:work --sleep=3 --tries=1 --max-time=3600 --verbose
+        chown -R www-data:www-data storage bootstrap/cache 2>/dev/null || true
+        set -- su-exec www-data php artisan queue:work --sleep=3 --tries=1 --max-time=3600 --verbose
         ;;
     *)
         # Perintah custom (mis. `php artisan ...`), jangan timpa.
