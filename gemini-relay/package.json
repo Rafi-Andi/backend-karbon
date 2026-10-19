@@ -11,6 +11,11 @@
     "test": "node relay.test.mjs"
   },
   "devDependencies": {
-    "wrangler": "^3.99.0"
+    "wrangler": "^4.151.1"
+  },
+  "allowScripts": {
+    "esbuild@0.17.19": true,
+    "sharp@0.33.5": true,
+    "workerd@1.20250718.0": true
   }
 }

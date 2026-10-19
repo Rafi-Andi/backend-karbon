@@ -17,8 +17,9 @@
  *
  * Deploy:
  *   npm install
- *   npx wrangler secret put RELAY_KEY     # isi string acak panjang
  *   npx wrangler deploy                   # catat URL https://...workers.dev
+ *   npx wrangler secret put RELAY_KEY     # isi string acak panjang
+ * (atau tanpa Node/npm: tempel file ini lewat dashboard Cloudflare — lihat README)
  */
 
 const ALLOWED_PATH = /^\/v1beta\/models\/[A-Za-z0-9._-]+:generateContent$/;
@@ -30,6 +31,62 @@ function json(body, status) {
     status,
     headers: { 'Content-Type': 'application/json' },
   });
+}
+
+const LOCATION_BLOCK = /user location is not supported/i;
+
+/**
+ * Teruskan ke Gemini dengan percobaan ulang.
+ *
+ * Google menolak sebagian IP egress Cloudflare dengan HTTP 400
+ * "User location is not supported" (kebijakan IP datacenter). IP egress
+ * dipilih per-request, jadi percobaan ulang kerap mendarat di IP yang
+ * diterima. Hasil percobaan terakhir tetap dikembalikan apa adanya supaya
+ * error aslinya masih terlihat bila semuanya gagal.
+ */
+async function forwardWithRetry(target, body, attempts = 3) {
+  let last = null;
+
+  for (let i = 1; i <= attempts; i++) {
+    let upstream;
+
+    try {
+      upstream = await fetch(target, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'User-Agent': 'KarbonKita-Relay/1.0',
+        },
+        body,
+      });
+    } catch (err) {
+      last = {
+        status: 502,
+        text: JSON.stringify({
+          error: { message: `Relay upstream error: ${err && err.message ? err.message : 'unknown'}` },
+        }),
+        contentType: 'application/json',
+        attempts: i,
+      };
+
+      continue;
+    }
+
+    const text = await upstream.text();
+
+    last = {
+      status: upstream.status,
+      text,
+      contentType: upstream.headers.get('Content-Type') || 'application/json',
+      attempts: i,
+    };
+
+    if (upstream.status !== 400 || !LOCATION_BLOCK.test(text)) {
+      return last;
+    }
+  }
+
+  return last;
 }
 
 export default {
@@ -58,30 +115,14 @@ export default {
     // Teruskan query string (?key=...) apa adanya — key tidak di-log.
     const target = `${GEMINI_HOST}${url.pathname}${url.search}`;
 
-    let upstream;
-    try {
-      upstream = await fetch(target, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'User-Agent': 'KarbonKita-Relay/1.0',
-        },
-        body,
-      });
-    } catch (err) {
-      return json(
-        { error: { message: `Relay upstream error: ${err && err.message ? err.message : 'unknown'}` } },
-        502,
-      );
-    }
+    const result = await forwardWithRetry(target, body);
 
-    const text = await upstream.text();
-
-    return new Response(text, {
-      status: upstream.status,
+    return new Response(result.text, {
+      status: result.status,
       headers: {
-        'Content-Type': upstream.headers.get('Content-Type') || 'application/json',
-        'X-Relay-Upstream-Status': String(upstream.status),
+        'Content-Type': result.contentType,
+        'X-Relay-Upstream-Status': String(result.status),
+        'X-Relay-Attempts': String(result.attempts),
       },
     });
   },
