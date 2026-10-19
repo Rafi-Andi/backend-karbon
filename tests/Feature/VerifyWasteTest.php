@@ -100,6 +100,22 @@ class VerifyWasteTest extends TestCase
         ])->assertStatus(401);
     }
 
+    public function test_unauthenticated_without_accept_header_returns_json_401(): void
+    {
+        $mission = $this->makeMission();
+
+        // Klien seperti curl/browser tidak mengirim header Accept. Sebelum
+        // shouldRenderJsonWhen dipasang, ini 500 karena Laravel mencoba
+        // redirect ke route `login` yang tidak ada di aplikasi API-only.
+        $response = $this->post('/api/missions/verify-waste', [
+            'mission_id' => $mission->id,
+            'image' => UploadedFile::fake()->image('waste.jpg'),
+        ]);
+
+        $response->assertStatus(401);
+        $this->assertSame('Unauthenticated.', $response->json('message'));
+    }
+
     public function test_success_verified_with_mock_ai(): void
     {
         $user = $this->makeWarga();

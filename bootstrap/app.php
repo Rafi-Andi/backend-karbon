@@ -6,6 +6,7 @@ use App\Http\Middleware\SocietyTokenMiddleware;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
+use Illuminate\Http\Request;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -22,6 +23,13 @@ return Application::configure(basePath: dirname(__DIR__))
         // Aman karena port app (9000) tidak pernah dipublish ke host.
         $middleware->trustProxies(at: '*');
 
+        // Aplikasi ini API-only: tidak ada route `login`. Redirect default
+        // Laravel memanggil route('login') dari dalam middleware Authenticate,
+        // sehingga request tanpa header Accept (curl, browser) gagal 500
+        // sebelum sempat jadi 401. Null = langsung lempar AuthenticationException,
+        // yang oleh handler dirender JSON 401 untuk rute api/*.
+        $middleware->redirectGuestsTo(fn (): ?string => null);
+
         $middleware->alias([
             'auth.society' => SocietyTokenMiddleware::class,
             'role' => EnsureRole::class,
@@ -32,5 +40,11 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->appendToGroup('api', LogApiAccess::class);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
-        //
+        // Rute API selalu balas JSON walau klien tidak mengirim header Accept.
+        // Tanpa ini, request tanpa Accept (curl, browser, Postman default)
+        // memicu redirect ke route `login` yang tidak ada di aplikasi
+        // API-only ini -> HTTP 500, bukan 401 "Unauthenticated.".
+        $exceptions->shouldRenderJsonWhen(
+            fn (Request $request): bool => $request->is('api/*') || $request->expectsJson()
+        );
     })->create();
