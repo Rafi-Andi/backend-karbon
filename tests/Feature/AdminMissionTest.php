@@ -112,6 +112,22 @@ class AdminMissionTest extends TestCase
         $this->assertTrue((bool) $mission->is_active);
     }
 
+    public function test_store_mobility_accepts_001_km_target(): void
+    {
+        $admin = $this->makeAdmin();
+
+        $response = $this->postJson(
+            '/api/admin/missions',
+            array_merge($this->mobilityPayload(), ['target_distance_km' => 0.01]),
+            $this->authHeader($admin)
+        );
+
+        $response->assertStatus(201);
+
+        $this->assertEquals(0.01, (float) $response->json('data.target_distance_km'));
+        $this->assertEquals(0.01, (float) Mission::find($response->json('data.id'))->target_distance_km);
+    }
+
     public function test_store_mobility_requires_activity_and_target(): void
     {
         $admin = $this->makeAdmin();

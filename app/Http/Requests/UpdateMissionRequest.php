@@ -25,7 +25,7 @@ class UpdateMissionRequest extends FormRequest
             'max_participants' => ['nullable', 'integer', 'min:1'],
             'is_active' => ['sometimes', 'boolean'],
             'activity_type' => ['sometimes', 'string', 'in:walking,running,cycling'],
-            'target_distance_km' => ['sometimes', 'numeric', 'min:0.1', 'max:500'],
+            'target_distance_km' => ['sometimes', 'numeric', 'min:0.01', 'max:500'],
             'validation_prompt' => ['nullable', 'string', 'max:5000'],
         ];
     }
@@ -74,7 +74,7 @@ class UpdateMissionRequest extends FormRequest
     {
         return [
             'activity_type.in' => 'Activity type harus walking, running, atau cycling.',
-            'target_distance_km.min' => 'Target jarak minimal 0.1 km.',
+            'target_distance_km.min' => 'Target jarak minimal 0.01 km.',
         ];
     }
 

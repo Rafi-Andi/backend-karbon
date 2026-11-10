@@ -26,7 +26,7 @@ class StoreMissionRequest extends FormRequest
             'is_active' => ['nullable', 'boolean'],
             // Khusus mobility: aktivitas pengikat + target jarak wajib.
             'activity_type' => ['required_if:category,mobility', 'prohibited_if:category,waste', 'string', 'in:walking,running,cycling'],
-            'target_distance_km' => ['required_if:category,mobility', 'prohibited_if:category,waste', 'numeric', 'min:0.1', 'max:500'],
+            'target_distance_km' => ['required_if:category,mobility', 'prohibited_if:category,waste', 'numeric', 'min:0.01', 'max:500'],
             // Khusus waste: kriteria foto untuk AI wajib.
             'validation_prompt' => ['required_if:category,waste', 'prohibited_if:category,mobility', 'string', 'max:5000'],
         ];
@@ -41,7 +41,7 @@ class StoreMissionRequest extends FormRequest
             'activity_type.in' => 'Activity type harus walking, running, atau cycling.',
             'target_distance_km.required_if' => 'Target jarak wajib untuk misi mobility.',
             'target_distance_km.prohibited_if' => 'Target jarak hanya untuk misi mobility.',
-            'target_distance_km.min' => 'Target jarak minimal 0.1 km.',
+            'target_distance_km.min' => 'Target jarak minimal 0.01 km.',
             'validation_prompt.required_if' => 'Validation prompt wajib untuk misi waste.',
             'validation_prompt.prohibited_if' => 'Validation prompt hanya untuk misi waste.',
         ];

@@ -448,6 +448,12 @@ class MobilitySyncTest extends TestCase
             $this->validPayload(['distance_km' => 501]),
             $this->authHeader($user)
         )->assertStatus(422)->assertJsonValidationErrors(['distance_km']);
+
+        $this->postJson(
+            '/api/missions/mobility-sync',
+            $this->validPayload(['distance_km' => 0.009]),
+            $this->authHeader($user)
+        )->assertStatus(422)->assertJsonValidationErrors(['distance_km']);
     }
 
     public function test_validation_duration_minimum(): void
@@ -457,9 +463,37 @@ class MobilitySyncTest extends TestCase
 
         $this->postJson(
             '/api/missions/mobility-sync',
-            $this->validPayload(['duration_seconds' => 59]),
+            $this->validPayload(['duration_seconds' => 0]),
             $this->authHeader($user)
         )->assertStatus(422)->assertJsonValidationErrors(['duration_seconds']);
+    }
+
+    public function test_short_mission_can_complete_without_minimum_duration(): void
+    {
+        $user = $this->makeWarga();
+        $mission = $this->makeMobilityMission([
+            'target_distance_km' => 0.01,
+            'activity_type' => 'walking',
+        ]);
+
+        $response = $this->postJson(
+            '/api/missions/mobility-sync',
+            $this->validPayload([
+                'mission_id' => $mission->id,
+                'activity_type' => 'walking',
+                'distance_km' => 0.01,
+                'duration_seconds' => 1,
+            ]),
+            $this->authHeader($user)
+        );
+
+        $response->assertStatus(201)
+            ->assertJsonPath('data.status', 'verified')
+            ->assertJsonPath('data.duration_minutes', 1);
+
+        $this->assertEquals(0.01, (float) MobilityLog::find(
+            $response->json('data.mobility_log_id')
+        )->distance_km);
     }
 
     public function test_validation_single_gps_point_rejected(): void

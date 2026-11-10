@@ -469,10 +469,10 @@ class MissionController extends Controller
 
         $distanceKm = (float) $validated['distance_km'];
 
-        // Target jarak misi wajib tercapai (fallback 0,1 km bila tak diset).
+        // Target jarak misi wajib tercapai (fallback 0,01 km bila tak diset).
         $targetKm = $mission->target_distance_km !== null
             ? (float) $mission->target_distance_km
-            : 0.1;
+            : 0.01;
 
         if ($distanceKm < $targetKm) {
             return response()->json([
@@ -489,12 +489,14 @@ class MissionController extends Controller
             ], 422);
         }
 
-        $durationSeconds = (int) $validated['duration_seconds'];
+        $durationSeconds = max(1, (int) $validated['duration_seconds']);
         $avgSpeedKmh = $distanceKm / ($durationSeconds / 3600);
         $activityType = $validated['activity_type'];
         $speedLimit = self::AVG_SPEED_LIMITS_KMH[$activityType] ?? 25;
 
-        if ($avgSpeedKmh > $speedLimit) {
+        // Segmen sangat pendek (<0,1 km) terlalu rawan noise GPS untuk dinilai
+        // kecepatannya. Misi demo 0,01 km tetap bisa selesai dalam waktu singkat.
+        if ($distanceKm >= 0.1 && $avgSpeedKmh > $speedLimit) {
             $rejected = UserMission::create([
                 'user_id' => $user->id,
                 'mission_id' => $mission->id,
