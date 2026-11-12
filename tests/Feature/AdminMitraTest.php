@@ -151,4 +151,48 @@ class AdminMitraTest extends TestCase
             ->postJson("/api/admin/merchants/{$mitra->id}/verify", ['action' => 'maybe'])
             ->assertStatus(422);
     }
+
+    public function test_index_returns_newest_first(): void
+    {
+        $admin = $this->makeAdmin();
+        $created = [];
+        for ($i = 0; $i < 20; $i++) {
+            $created[] = $this->makeMitra('pending');
+        }
+
+        $response = $this->actingAs($admin, 'sanctum')
+            ->getJson('/api/admin/merchants/pending')
+            ->assertOk()
+            ->assertJsonPath('success', true);
+
+        $ids = collect($response->json('data.data'))->pluck('id');
+        $this->assertCount(15, $ids);
+        $this->assertSame($ids->first(), $created[19]->id);
+        $this->assertSame($ids->last(), $created[5]->id);
+        $this->assertSame($response->json('data.total'), 20);
+        $this->assertSame($response->json('data.last_page'), 2);
+        $this->assertSame($response->json('data.current_page'), 1);
+    }
+
+    public function test_index_respects_per_page(): void
+    {
+        $admin = $this->makeAdmin();
+        for ($i = 0; $i < 20; $i++) {
+            $this->makeMitra('pending');
+        }
+
+        $this->actingAs($admin, 'sanctum')
+            ->getJson('/api/admin/merchants/pending?per_page=100')
+            ->assertOk()
+            ->assertJsonPath('data.total', 20)
+            ->assertJsonPath('data.per_page', 100)
+            ->assertJsonPath('data.last_page', 1)
+            ->assertJsonPath('data.current_page', 1);
+
+        // Per page di luar rentang 1–100 → 422.
+        $this->actingAs($admin, 'sanctum')
+            ->getJson('/api/admin/merchants/pending?per_page=0')
+            ->assertStatus(422)
+            ->assertJsonPath('success', false);
+    }
 }

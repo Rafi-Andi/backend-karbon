@@ -31,10 +31,19 @@ class AdminController extends Controller
             ], 422);
         }
 
+        $perPage = (int) $request->query('per_page', 15);
+        if ($perPage < 1 || $perPage > 100) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Validation failed.',
+                'errors' => ['per_page' => ['Per page must be between 1 and 100.']],
+            ], 422);
+        }
+
         $merchants = MitraProfile::with('user:id,name,email,phone')
             ->where('status_verifikasi', $status)
-            ->orderBy('id')
-            ->paginate(15);
+            ->orderByDesc('id')
+            ->paginate($perPage);
 
         $summary = [
             'pending' => MitraProfile::where('status_verifikasi', 'pending')->count(),
